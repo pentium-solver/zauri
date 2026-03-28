@@ -287,48 +287,24 @@ fn ai_chat(
 
                         // Try to parse as JSON (stream-json format)
                         if let Ok(event) = serde_json::from_str::<serde_json::Value>(&trimmed) {
-                            match event.get("type").and_then(|t| t.as_str()) {
-                                Some("assistant") => {
-                                    // Extract text from message content array
-                                    if let Some(content) = event
-                                        .get("message")
-                                        .and_then(|m| m.get("content"))
-                                        .and_then(|c| c.as_array())
-                                    {
-                                        for block in content {
-                                            if let Some(text) =
-                                                block.get("text").and_then(|t| t.as_str())
-                                            {
-                                                if !text.is_empty() {
-                                                    let _ = app_handle
-                                                        .emit("ai-response-chunk", text);
-                                                }
-                                            }
-                                        }
+                            // Only use the "result" event — it's the definitive response.
+                            // Skip "assistant" event (same text, would cause duplicates).
+                            if event.get("type").and_then(|t| t.as_str()) == Some("result") {
+                                if let Some(text) = event.get("result").and_then(|r| r.as_str())
+                                {
+                                    let trimmed_text = text.trim();
+                                    if !trimmed_text.is_empty() {
+                                        let _ = app_handle
+                                            .emit("ai-response-chunk", trimmed_text);
                                     }
                                 }
-                                Some("result") => {
-                                    // Final result — use this as the definitive response
-                                    if let Some(text) =
-                                        event.get("result").and_then(|r| r.as_str())
-                                    {
-                                        // Only emit if we haven't already from "assistant"
-                                        // Check subtype to know if it succeeded
-                                        if event
-                                            .get("subtype")
-                                            .and_then(|s| s.as_str())
-                                            == Some("success")
-                                        {
-                                            let _ =
-                                                app_handle.emit("ai-response-result", text);
-                                        }
-                                    }
-                                }
-                                _ => {} // system, rate_limit_event, etc — skip
                             }
                         } else {
                             // Raw text (non-JSON) — from codex or fallback
-                            let _ = app_handle.emit("ai-response-chunk", &trimmed);
+                            let t = trimmed.trim();
+                            if !t.is_empty() {
+                                let _ = app_handle.emit("ai-response-chunk", t);
+                            }
                         }
                     }
                 }

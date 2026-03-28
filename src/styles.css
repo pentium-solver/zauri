@@ -791,15 +791,15 @@ body {
 .ai-msg {
   border-radius: 8px;
   padding: 8px 12px;
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .ai-msg-user {
   background: var(--accent-subtle);
   border: 1px solid rgba(168, 85, 247, 0.15);
   align-self: flex-end;
-  max-width: 90%;
+  max-width: 85%;
 }
 
 .ai-msg-assistant {
@@ -807,6 +807,10 @@ body {
   border: 1px solid var(--border);
   align-self: flex-start;
   max-width: 95%;
+}
+
+.ai-msg-content:empty {
+  display: none;
 }
 
 .ai-msg-system {
@@ -997,6 +1001,14 @@ body {
   color: var(--text-primary);
   background: var(--bg-hover);
   border-color: var(--border);
+}
+
+.ai-provider-btn .icon-claude {
+  color: #D97757;
+}
+
+.ai-provider-btn .icon-codex {
+  color: #10A37F;
 }
 
 .ai-toolbar-sep {
