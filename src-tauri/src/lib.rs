@@ -31,12 +31,6 @@ struct SearchMatch {
     text: String,
 }
 
-#[derive(Serialize)]
-struct PerfMetrics {
-    operation: String,
-    duration_ms: f64,
-}
-
 // Buffer size for file operations (10MB)
 const BUF_SIZE: u32 = 10 * 1024 * 1024;
 // Buffer size for directory listing and search (1MB)
