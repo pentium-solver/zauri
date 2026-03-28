@@ -1,7 +1,10 @@
+use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::ffi::CString;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tauri::Emitter;
 
@@ -167,17 +170,24 @@ fn search_files(root_path: String, query: String) -> Result<Vec<SearchMatch>, St
 // ---- AI Integration: Claude CLI agent ----
 
 #[tauri::command]
-fn check_claude_cli() -> Result<String, String> {
-    let output = Command::new("claude")
-        .args(["--version"])
+fn check_ai_provider(provider: String) -> Result<String, String> {
+    let (cmd, args): (&str, &[&str]) = match provider.as_str() {
+        "claude" => ("claude", &["--version"]),
+        "codex" => ("codex", &["--version"]),
+        _ => return Err(format!("Unknown provider: {}", provider)),
+    };
+
+    let output = Command::new(cmd)
+        .args(args)
         .output()
-        .map_err(|e| format!("Claude CLI not found: {}. Install with: npm install -g @anthropic-ai/claude-code", e))?;
+        .map_err(|e| format!("{} CLI not found: {}", provider, e))?;
 
     if output.status.success() {
         let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
         Ok(version)
     } else {
-        Err("Claude CLI not responding".to_string())
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(format!("{} CLI error: {}", provider, stderr))
     }
 }
 
@@ -187,6 +197,7 @@ fn ai_chat(
     prompt: String,
     working_dir: String,
     context_files: Vec<String>,
+    provider: String,
 ) -> Result<(), String> {
     // Build context from open files
     let mut full_prompt = String::new();
@@ -218,15 +229,33 @@ fn ai_chat(
 
     full_prompt.push_str(&prompt);
 
-    // Spawn claude CLI in a thread to avoid blocking
+    // Spawn AI CLI in a thread to avoid blocking
     let app_handle = app.clone();
     std::thread::spawn(move || {
-        let result = Command::new("claude")
-            .args([
-                "--print",           // Non-interactive, print response
-                "--output-format", "text",
-            ])
-            .stdin(Stdio::piped())
+        let (cmd, args): (String, Vec<String>) = match provider.as_str() {
+            "codex" => (
+                "codex".to_string(),
+                vec![
+                    "--full-auto".to_string(),
+                    "--quiet".to_string(),
+                    full_prompt.clone(),
+                ],
+            ),
+            _ => (
+                "claude".to_string(),
+                vec![
+                    "--print".to_string(),
+                    "--output-format".to_string(),
+                    "text".to_string(),
+                ],
+            ),
+        };
+
+        let use_stdin = provider != "codex"; // Codex takes prompt as arg
+
+        let result = Command::new(&cmd)
+            .args(&args)
+            .stdin(if use_stdin { Stdio::piped() } else { Stdio::null() })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .current_dir(&working_dir)
@@ -234,11 +263,13 @@ fn ai_chat(
 
         match result {
             Ok(mut child) => {
-                // Write prompt to stdin
-                if let Some(mut stdin) = child.stdin.take() {
-                    use std::io::Write;
-                    let _ = stdin.write_all(full_prompt.as_bytes());
-                    drop(stdin); // Close stdin to signal EOF
+                // Write prompt to stdin (Claude uses stdin, Codex uses args)
+                if use_stdin {
+                    if let Some(mut stdin) = child.stdin.take() {
+                        use std::io::Write;
+                        let _ = stdin.write_all(full_prompt.as_bytes());
+                        drop(stdin);
+                    }
                 }
 
                 // Stream stdout line by line
@@ -276,6 +307,177 @@ fn ai_chat(
     Ok(())
 }
 
+// ---- Terminal (PTY-based) ----
+
+// Global PTY sessions
+type PtyWriters = Arc<Mutex<HashMap<String, Box<dyn Write + Send>>>>;
+
+static PTY_WRITERS: std::sync::LazyLock<PtyWriters> =
+    std::sync::LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
+
+#[tauri::command]
+fn terminal_spawn(
+    app: tauri::AppHandle,
+    working_dir: String,
+    terminal_id: String,
+) -> Result<(), String> {
+    let pty_system = NativePtySystem::default();
+
+    let pair = pty_system
+        .openpty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| e.to_string())?;
+
+    // Detect user's preferred shell
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+
+    let mut cmd = CommandBuilder::new(&shell);
+    cmd.cwd(&working_dir);
+
+    let mut child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+
+    // Store the writer for sending input
+    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+    {
+        let mut writers = PTY_WRITERS.lock().unwrap();
+        writers.insert(terminal_id.clone(), writer);
+    }
+
+    // Read PTY output in a thread
+    let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
+    let app_handle = app.clone();
+    let id = terminal_id.clone();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let _ = app_handle.emit(
+                        "terminal-output",
+                        serde_json::json!({
+                            "id": id,
+                            "data": data,
+                            "stream": "stdout"
+                        }),
+                    );
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    // Wait for child exit in another thread
+    let app_handle2 = app.clone();
+    let id2 = terminal_id.clone();
+    std::thread::spawn(move || {
+        let _ = child.wait();
+        let _ = app_handle2.emit(
+            "terminal-exit",
+            serde_json::json!({ "id": id2, "code": 0 }),
+        );
+        // Clean up writer
+        let mut writers = PTY_WRITERS.lock().unwrap();
+        writers.remove(&id2);
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+fn terminal_write(terminal_id: String, data: String) -> Result<(), String> {
+    let mut writers = PTY_WRITERS.lock().unwrap();
+    if let Some(writer) = writers.get_mut(&terminal_id) {
+        writer
+            .write_all(data.as_bytes())
+            .map_err(|e| e.to_string())?;
+        writer.flush().map_err(|e| e.to_string())?;
+        Ok(())
+    } else {
+        Err("Terminal session not found".to_string())
+    }
+}
+
+#[tauri::command]
+fn terminal_resize(terminal_id: String, cols: u16, rows: u16) -> Result<(), String> {
+    // PTY resize would need master handle stored — for now just acknowledge
+    let _ = (terminal_id, cols, rows);
+    Ok(())
+}
+
+// Keep the simple exec for one-off commands (used by AI too)
+#[tauri::command]
+fn terminal_exec(
+    app: tauri::AppHandle,
+    command: String,
+    working_dir: String,
+    terminal_id: String,
+) -> Result<(), String> {
+    let app_handle = app.clone();
+    std::thread::spawn(move || {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+
+        let result = Command::new(&shell)
+            .args(["-c", &command])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .current_dir(&working_dir)
+            .spawn();
+
+        match result {
+            Ok(mut child) => {
+                if let Some(stdout) = child.stdout.take() {
+                    let reader = BufReader::new(stdout);
+                    let id = terminal_id.clone();
+                    let app = app_handle.clone();
+                    std::thread::spawn(move || {
+                        for line in reader.lines().map_while(Result::ok) {
+                            let _ = app.emit("terminal-output", serde_json::json!({
+                                "id": id, "data": line, "stream": "stdout"
+                            }));
+                        }
+                    });
+                }
+                if let Some(stderr) = child.stderr.take() {
+                    let reader = BufReader::new(stderr);
+                    let id = terminal_id.clone();
+                    let app = app_handle.clone();
+                    std::thread::spawn(move || {
+                        for line in reader.lines().map_while(Result::ok) {
+                            let _ = app.emit("terminal-output", serde_json::json!({
+                                "id": id, "data": line, "stream": "stderr"
+                            }));
+                        }
+                    });
+                }
+                match child.wait() {
+                    Ok(status) => {
+                        let _ = app_handle.emit("terminal-exit", serde_json::json!({
+                            "id": terminal_id, "code": status.code().unwrap_or(-1)
+                        }));
+                    }
+                    Err(e) => {
+                        let _ = app_handle.emit("terminal-exit", serde_json::json!({
+                            "id": terminal_id, "code": -1, "error": e.to_string()
+                        }));
+                    }
+                }
+            }
+            Err(e) => {
+                let _ = app_handle.emit("terminal-exit", serde_json::json!({
+                    "id": terminal_id, "code": -1, "error": e.to_string()
+                }));
+            }
+        }
+    });
+    Ok(())
+}
+
 #[tauri::command]
 fn get_startup_time() -> f64 {
     let pid = std::process::id();
@@ -296,8 +498,12 @@ pub fn run() {
             list_directory,
             search_files,
             get_startup_time,
-            check_claude_cli,
+            check_ai_provider,
             ai_chat,
+            terminal_spawn,
+            terminal_write,
+            terminal_resize,
+            terminal_exec,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

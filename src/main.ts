@@ -8,6 +8,7 @@ import { searchKeymap } from "@codemirror/search";
 import { getFileIcon, getFolderIcon, chevronRight, chevronDown } from "./icons";
 import { getLanguageExtension } from "./languages";
 import { createAIPanel, initAIPanel, toggleAIPanel } from "./ai-panel";
+import { createTerminalPanel, initTerminal, toggleTerminal } from "./terminal";
 
 // ---- Types ----
 interface DirEntry {
@@ -299,6 +300,7 @@ function showWelcome() {
         <div class="shortcut"><kbd>Cmd+S</kbd> <span>Save File</span></div>
         <div class="shortcut"><kbd>Cmd+Shift+F</kbd> <span>Search in Files</span></div>
         <div class="shortcut"><kbd>Cmd+L</kbd> <span>AI Assistant</span></div>
+        <div class="shortcut"><kbd>Cmd+\`</kbd> <span>Terminal</span></div>
       </div>
     </div>
   `;
@@ -462,6 +464,9 @@ document.addEventListener("keydown", (e) => {
   } else if (mod && e.key === "l") {
     e.preventDefault();
     toggleAIPanel();
+  } else if (mod && e.key === "`") {
+    e.preventDefault();
+    toggleTerminal();
   } else if (e.key === "Escape") {
     const aiPanel = document.getElementById("ai-panel");
     if (aiPanel && !aiPanel.classList.contains("hidden")) {
@@ -483,6 +488,13 @@ searchInput.addEventListener("input", () => {
   }, 300);
 });
 
+// ---- Terminal setup ----
+const terminalPanelEl = createTerminalPanel();
+// Insert terminal before the search panel in #main
+const mainEl = document.getElementById("main")!;
+mainEl.insertBefore(terminalPanelEl, searchPanel);
+initTerminal(() => rootPath);
+
 // ---- AI Panel setup ----
 const aiPanelEl = createAIPanel();
 document.getElementById("app")!.appendChild(aiPanelEl);
@@ -492,9 +504,55 @@ initAIPanel(
   () => rootPath,
 );
 
-// Wire up sidebar AI button and search button
+// Wire up sidebar buttons
 document.getElementById("search-btn")?.addEventListener("click", toggleSearch);
 document.getElementById("ai-btn")?.addEventListener("click", toggleAIPanel);
+document.getElementById("terminal-btn")?.addEventListener("click", toggleTerminal);
+
+// ---- Resize handles ----
+function setupResize(
+  handle: HTMLElement | null,
+  target: HTMLElement,
+  axis: "x" | "y",
+  invert: boolean = false,
+) {
+  if (!handle) return;
+  let startPos = 0;
+  let startSize = 0;
+
+  handle.addEventListener("mousedown", (e) => {
+    startPos = axis === "x" ? e.clientX : e.clientY;
+    startSize = axis === "x" ? target.offsetWidth : target.offsetHeight;
+    document.body.style.cursor = axis === "x" ? "col-resize" : "row-resize";
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+
+    const onMove = (e: MouseEvent) => {
+      const current = axis === "x" ? e.clientX : e.clientY;
+      const diff = invert ? startPos - current : current - startPos;
+      const newSize = startSize + diff;
+      if (axis === "x") {
+        target.style.width = `${newSize}px`;
+      } else {
+        target.style.height = `${newSize}px`;
+      }
+    };
+
+    const onUp = () => {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+const sidebar = document.getElementById("sidebar")!;
+setupResize(document.getElementById("sidebar-resize"), sidebar, "x");
+setupResize(document.getElementById("terminal-resize"), terminalPanelEl, "y", true);
 
 // ---- Startup ----
 window.addEventListener("DOMContentLoaded", () => {

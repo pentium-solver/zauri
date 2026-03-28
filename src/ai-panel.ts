@@ -17,8 +17,14 @@ export function createAIPanel(): HTMLElement {
   panel.id = "ai-panel";
   panel.className = "hidden";
   panel.innerHTML = `
+    <div id="ai-resize-handle"></div>
     <div id="ai-header">
-      <span class="ai-label">AI Assistant</span>
+      <div class="ai-header-left">
+        <select id="ai-provider" class="ai-provider-select">
+          <option value="claude">Claude</option>
+          <option value="codex">Codex</option>
+        </select>
+      </div>
       <div class="ai-header-actions">
         <span id="ai-status" class="ai-status"></span>
         <button id="ai-close" class="ai-header-btn" title="Close">&times;</button>
@@ -28,7 +34,7 @@ export function createAIPanel(): HTMLElement {
     <div id="ai-input-area">
       <div id="ai-context-bar"></div>
       <div id="ai-composer">
-        <textarea id="ai-input" placeholder="Ask Claude about your code..." rows="3"></textarea>
+        <textarea id="ai-input" placeholder="Ask about your code..." rows="3"></textarea>
         <button id="ai-send" title="Send (Enter)">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
             <path d="M2 14l12-6L2 2v5l8 1-8 1z" fill="currentColor"/>
@@ -52,9 +58,44 @@ export function initAIPanel(
   const closeBtn = document.getElementById("ai-close")!;
   const statusEl = document.getElementById("ai-status")!;
   const contextBar = document.getElementById("ai-context-bar")!;
+  const providerSelect = document.getElementById("ai-provider") as HTMLSelectElement;
 
-  // Check Claude CLI availability
-  checkClaude(statusEl);
+  // Check provider availability
+  checkProvider(statusEl, "claude");
+
+  providerSelect.addEventListener("change", () => {
+    checkProvider(statusEl, providerSelect.value);
+  });
+
+  // Resize handle
+  const resizeHandle = document.getElementById("ai-resize-handle")!;
+  let isResizing = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  resizeHandle.addEventListener("mousedown", (e) => {
+    isResizing = true;
+    startX = e.clientX;
+    startWidth = panel.offsetWidth;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    e.preventDefault();
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!isResizing) return;
+    const diff = startX - e.clientX;
+    const newWidth = Math.max(280, Math.min(800, startWidth + diff));
+    panel.style.width = `${newWidth}px`;
+  });
+
+  document.addEventListener("mouseup", () => {
+    if (isResizing) {
+      isResizing = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+  });
 
   // Event listeners
   closeBtn.addEventListener("click", () => panel.classList.add("hidden"));
@@ -75,17 +116,24 @@ export function initAIPanel(
 
   // Listen for streaming response chunks
   listen<string>("ai-response-chunk", (event) => {
+    const line = event.payload;
+    // Skip empty lines at the start of the response
+    if (!isStreaming && line.trim() === "") return;
+
     if (!isStreaming) {
       isStreaming = true;
-      // Create assistant message element
       const msg = createMessageEl("assistant", "");
       messagesContainer.appendChild(msg);
       currentStreamContent = "";
     }
-    currentStreamContent += event.payload + "\n";
+    // Only add newline between lines, not before the first one
+    if (currentStreamContent.length > 0) {
+      currentStreamContent += "\n";
+    }
+    currentStreamContent += line;
     const lastMsg = messagesContainer.querySelector(".ai-msg:last-child .ai-msg-content");
     if (lastMsg) {
-      lastMsg.textContent = currentStreamContent;
+      lastMsg.textContent = currentStreamContent.trimEnd();
     }
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   });
@@ -131,6 +179,7 @@ export function initAIPanel(
       prompt: text,
       workingDir: rootPath,
       contextFiles: openFiles,
+      provider: providerSelect.value,
     }).catch((err) => {
       const errMsg = createMessageEl("system", `Error: ${err}`);
       messagesContainer.appendChild(errMsg);
@@ -164,14 +213,16 @@ export function initAIPanel(
   (panel as any)._updateContext = updateContextBar;
 }
 
-async function checkClaude(statusEl: HTMLElement) {
+async function checkProvider(statusEl: HTMLElement, provider: string) {
   try {
-    const version: string = await invoke("check_claude_cli");
-    statusEl.textContent = `Claude ${version}`;
+    const version: string = await invoke("check_ai_provider", { provider });
+    statusEl.textContent = "Ready";
     statusEl.className = "ai-status ready";
-  } catch {
-    statusEl.textContent = "CLI not found";
+    statusEl.title = version;
+  } catch (err) {
+    statusEl.textContent = "Not found";
     statusEl.className = "ai-status error";
+    statusEl.title = String(err);
   }
 }
 
