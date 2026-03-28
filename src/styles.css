@@ -1495,6 +1495,40 @@ body {
   background: rgba(168, 130, 255, 0.2);
 }
 
+/* ═══════════════════════ Fork Banner ═══════════════════════ */
+.ai-fork-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 8px;
+  padding: 12px 14px;
+  background: rgba(168, 130, 255, 0.06);
+  border: 0.5px solid rgba(168, 130, 255, 0.15);
+  border-radius: 10px;
+}
+
+.fork-banner-icon {
+  font-size: 20px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.fork-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fork-banner-text strong {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.fork-banner-text span {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 /* ═══════════════════════ Diff Decorations ═══════════════════════ */
 .cm-diff-added {
   background: rgba(34, 197, 94, 0.1) !important;

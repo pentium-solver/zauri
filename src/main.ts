@@ -940,17 +940,23 @@ loadProjects().then(() => renderProjects());
 
 // Listen for thread fork events from AI panel
 window.addEventListener("zauri-switch-thread", ((e: CustomEvent) => {
-  const { threadId } = e.detail;
+  const { threadId, skipLoadMessages } = e.detail;
   if (!threadId) return;
-  // Find the thread and its project
   const allProjects = getProjects();
   for (const project of allProjects) {
     const threads = getThreadsForProject(project.id);
     const thread = threads.find((t: Thread) => t.id === threadId);
     if (thread) {
-      switchToThread(thread, project.workspaceRoot);
+      if (skipLoadMessages) {
+        // Just update the active thread ID without reloading messages
+        activeThreadId = thread.id;
+        if (rootPath !== project.workspaceRoot) {
+          openProjectFolder(project.workspaceRoot);
+        }
+      } else {
+        switchToThread(thread, project.workspaceRoot);
+      }
       renderProjects();
-      // Also open the AI panel if not visible
       const aiPanel = document.getElementById("ai-panel");
       if (aiPanel?.classList.contains("hidden")) {
         toggleAIPanel();

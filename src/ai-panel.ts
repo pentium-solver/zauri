@@ -261,9 +261,38 @@ export function initAIPanel(
       const forked = await forkThread(threadId, targetProvider);
       dialog.remove();
       if (forked && threadCallbacks) {
-        // Emit a custom event to switch to the new thread
+        // Calculate context stats
+        const msgCount = forked.messages.length;
+        const totalChars = forked.messages.reduce((sum, m) => sum + m.content.length, 0);
+        const approxTokens = Math.round(totalChars / 4);
+
+        // Switch provider
+        providerBtns.forEach((b) => b.classList.remove("active"));
+        providerBtns.forEach((b) => {
+          if (b.dataset.provider === targetProvider) b.classList.add("active");
+        });
+        currentProvider = targetProvider;
+        activeProviderName = currentProvider === "codex" ? "Codex" : "Claude";
+        switchProviderConfig(currentProvider);
+        checkProvider(statusEl, currentProvider);
+        updateAISettings(currentProvider, modelBtn.dataset.value || "", permBtn.dataset.value || "");
+
+        // Clear chat and show context summary
+        messagesContainer.innerHTML = "";
+        const banner = document.createElement("div");
+        banner.className = "ai-fork-banner fade-in";
+        banner.innerHTML = `
+          <div class="fork-banner-icon">&#8618;</div>
+          <div class="fork-banner-text">
+            <strong>Forked to ${activeProviderName}</strong>
+            <span>${msgCount} messages transferred &middot; ~${approxTokens.toLocaleString()} tokens of context</span>
+          </div>
+        `;
+        messagesContainer.appendChild(banner);
+
+        // Switch to the forked thread
         window.dispatchEvent(new CustomEvent("zauri-switch-thread", {
-          detail: { threadId: forked.id },
+          detail: { threadId: forked.id, skipLoadMessages: true },
         }));
       }
     });
