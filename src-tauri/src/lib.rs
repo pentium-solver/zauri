@@ -167,6 +167,30 @@ fn search_files(root_path: String, query: String) -> Result<Vec<SearchMatch>, St
     Ok(matches)
 }
 
+// ---- Project Store Persistence ----
+
+fn get_store_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let dir = std::path::Path::new(&home).join(".zauri");
+    let _ = std::fs::create_dir_all(&dir);
+    dir.join("projects.json")
+}
+
+#[tauri::command]
+fn load_project_store() -> Result<String, String> {
+    let path = get_store_path();
+    match std::fs::read_to_string(&path) {
+        Ok(data) => Ok(data),
+        Err(_) => Ok(r#"{"projects":[],"threads":[]}"#.to_string()),
+    }
+}
+
+#[tauri::command]
+fn save_project_store(data: String) -> Result<(), String> {
+    let path = get_store_path();
+    std::fs::write(&path, data).map_err(|e| e.to_string())
+}
+
 // ---- AI Integration: Claude CLI agent ----
 
 #[tauri::command]
@@ -557,6 +581,8 @@ pub fn run() {
             list_directory,
             search_files,
             get_startup_time,
+            load_project_store,
+            save_project_store,
             check_ai_provider,
             ai_chat,
             terminal_spawn,

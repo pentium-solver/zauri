@@ -9,6 +9,17 @@ import { getFileIcon, getFolderIcon, chevronRight, chevronDown } from "./icons";
 import { getLanguageExtension } from "./languages";
 import { createAIPanel, initAIPanel, toggleAIPanel } from "./ai-panel";
 import { createTerminalPanel, initTerminal, toggleTerminal } from "./terminal";
+import {
+  loadProjects,
+  createProject,
+  getProjects,
+  getThreadsForProject,
+  createThread,
+  addMessageToThread,
+  onStoreChange,
+  timeAgo,
+  type Thread,
+} from "./projects";
 import { diffExtension, activateDiff, clearDiff } from "./diff-decorations";
 import {
   type ProposedEdit,
@@ -442,7 +453,17 @@ async function openFolder() {
     rootPath = selected;
     fileTree.innerHTML = "";
     await loadDirectory(selected, fileTree);
+    // Auto-create project for this folder
+    const folderName = selected.split("/").pop() || selected;
+    await createProject(folderName, selected);
+    renderProjects();
   }
+}
+
+async function openProjectFolder(workspaceRoot: string) {
+  rootPath = workspaceRoot;
+  fileTree.innerHTML = "";
+  await loadDirectory(workspaceRoot, fileTree);
 }
 
 // ---- Highlight active file in tree ----
@@ -505,6 +526,122 @@ const terminalPanelEl = createTerminalPanel();
 const mainEl = document.getElementById("main")!;
 mainEl.insertBefore(terminalPanelEl, searchPanel);
 initTerminal(() => rootPath);
+
+// ---- Projects & Threads ----
+
+let activeThreadId: string | null = null;
+const projectsList = document.getElementById("projects-list")!;
+
+function renderProjects() {
+  const projects = getProjects();
+  projectsList.innerHTML = "";
+
+  if (projects.length === 0) {
+    projectsList.innerHTML = `<div class="projects-empty">Open a folder to create a project</div>`;
+    return;
+  }
+
+  for (const project of projects) {
+    const threads = getThreadsForProject(project.id);
+    const el = document.createElement("div");
+    el.className = "project-item";
+
+    const header = document.createElement("div");
+    header.className = "project-header";
+    header.innerHTML = `
+      <span class="project-chevron">
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" class="project-folder-icon">
+        <path d="M1.5 2.5h4l1.5 1.5h7.5v9.5h-13z" fill="#8b8b96" opacity="0.6"/>
+        <path d="M1.5 4h13v8.5a1 1 0 01-1 1h-11a1 1 0 01-1-1z" fill="#8b8b96" opacity="0.4"/>
+      </svg>
+      <span class="project-name">${escapeHtml(project.title)}</span>
+    `;
+
+    const threadList = document.createElement("div");
+    threadList.className = "project-threads expanded";
+
+    // New thread button
+    const newThreadBtn = document.createElement("div");
+    newThreadBtn.className = "thread-item thread-new";
+    newThreadBtn.textContent = "+ New thread";
+    newThreadBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const thread = await createThread(project.id);
+      activeThreadId = thread.id;
+      renderProjects();
+    });
+    threadList.appendChild(newThreadBtn);
+
+    for (const thread of threads) {
+      const threadEl = document.createElement("div");
+      threadEl.className = `thread-item${thread.id === activeThreadId ? " active" : ""}`;
+      threadEl.innerHTML = `
+        <span class="thread-title">${escapeHtml(thread.title)}</span>
+        <span class="thread-time">${timeAgo(thread.createdAt)}</span>
+      `;
+      threadEl.addEventListener("click", (e) => {
+        e.stopPropagation();
+        switchToThread(thread, project.workspaceRoot);
+      });
+      threadList.appendChild(threadEl);
+    }
+
+    header.addEventListener("click", () => {
+      threadList.classList.toggle("expanded");
+      const chevron = header.querySelector(".project-chevron");
+      if (chevron) {
+        chevron.innerHTML = threadList.classList.contains("expanded")
+          ? `<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+          : `<svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M3.5 2L6.5 5L3.5 8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+      }
+      // Open project folder on click
+      openProjectFolder(project.workspaceRoot);
+    });
+
+    el.appendChild(header);
+    el.appendChild(threadList);
+    projectsList.appendChild(el);
+  }
+}
+
+function switchToThread(thread: Thread, workspaceRoot: string) {
+  activeThreadId = thread.id;
+  // Load messages into AI panel
+  const aiMessages = document.getElementById("ai-messages");
+  if (aiMessages) {
+    aiMessages.innerHTML = "";
+    for (const msg of thread.messages) {
+      const el = document.createElement("div");
+      el.className = `ai-msg ai-msg-${msg.role} fade-in`;
+      const header = document.createElement("div");
+      header.className = "ai-msg-header";
+      header.textContent = msg.role === "user" ? "You" : "Claude";
+      const body = document.createElement("div");
+      body.className = "ai-msg-content";
+      if (msg.role === "assistant") {
+        body.innerHTML = (window as any).__renderMarkdown?.(msg.content) || msg.content;
+      } else {
+        body.textContent = msg.content;
+      }
+      el.appendChild(header);
+      el.appendChild(body);
+      aiMessages.appendChild(el);
+    }
+  }
+  // Open the project folder if not already open
+  if (rootPath !== workspaceRoot) {
+    openProjectFolder(workspaceRoot);
+  }
+  renderProjects();
+}
+
+// Wire up new project button
+document.getElementById("new-project-btn")?.addEventListener("click", openFolder);
+
+// Load projects on startup
+onStoreChange(renderProjects);
 
 // ---- AI Code Edit Integration ----
 
@@ -679,6 +816,15 @@ initAIPanel(
   () => Array.from(tabs.keys()),
   () => rootPath,
   { getFileContent, showProposedEdit, acceptAllEdits, rejectAllEdits },
+  {
+    getActiveThreadId: () => activeThreadId,
+    saveMessage: async (role: "user" | "assistant", content: string) => {
+      if (activeThreadId) {
+        await addMessageToThread(activeThreadId, role, content);
+        renderProjects();
+      }
+    },
+  },
 );
 
 // Wire up sidebar buttons
@@ -733,6 +879,9 @@ setupResize(document.getElementById("terminal-resize"), terminalPanelEl, "y", tr
 
 // Revert button
 document.getElementById("status-revert")?.addEventListener("click", revertLast);
+
+// Load projects on startup
+loadProjects().then(() => renderProjects());
 
 // ---- Startup ----
 window.addEventListener("DOMContentLoaded", () => {

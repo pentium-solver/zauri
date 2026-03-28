@@ -67,11 +67,17 @@ interface EditCallbacks {
   rejectAllEdits: () => void;
 }
 
+interface ThreadCallbacks {
+  getActiveThreadId: () => string | null;
+  saveMessage: (role: "user" | "assistant", content: string) => Promise<void>;
+}
+
 export function initAIPanel(
   getActiveFilePath: () => string | null,
   getOpenFilePaths: () => string[],
   getRootPath: () => string | null,
   editCallbacks?: EditCallbacks,
+  threadCallbacks?: ThreadCallbacks,
 ) {
   const panel = document.getElementById("ai-panel")!;
   const messagesContainer = document.getElementById("ai-messages")!;
@@ -199,6 +205,7 @@ export function initAIPanel(
         content: responseText,
         timestamp: Date.now(),
       });
+      threadCallbacks?.saveMessage("assistant", responseText);
 
       // Re-render the last message as markdown
       const lastMsg = messagesContainer.querySelector(".ai-msg-assistant:last-child .ai-msg-content");
@@ -281,6 +288,7 @@ export function initAIPanel(
 
     // Add user message
     messages.push({ role: "user", content: text, timestamp: Date.now() });
+    threadCallbacks?.saveMessage("user", text);
     const msg = createMessageEl("user", text);
     messagesContainer.appendChild(msg);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -353,6 +361,9 @@ async function checkProvider(statusEl: HTMLElement, provider: string) {
 function renderMarkdown(text: string): string {
   return marked.parse(text, { async: false, gfm: true, breaks: true }) as string;
 }
+
+// Expose for thread switching
+(window as any).__renderMarkdown = renderMarkdown;
 
 function createMessageEl(role: string, content: string): HTMLElement {
   const el = document.createElement("div");

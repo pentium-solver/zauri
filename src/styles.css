@@ -119,6 +119,149 @@ body {
   color: var(--text-muted);
 }
 
+/* ═══════════════════════ Projects ═══════════════════════ */
+#projects-section {
+  border-bottom: 1px solid var(--border);
+  max-height: 40%;
+  overflow-y: auto;
+}
+
+#projects-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px 4px;
+}
+
+#projects-header .label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+}
+
+#projects-list {
+  padding: 0 0 4px;
+}
+
+.projects-empty {
+  padding: 8px 12px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.project-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.1s;
+}
+
+.project-header:hover {
+  background: var(--bg-hover);
+}
+
+.project-chevron {
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.project-folder-icon {
+  flex-shrink: 0;
+}
+
+.project-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-threads {
+  display: none;
+  padding-left: 22px;
+}
+
+.project-threads.expanded {
+  display: block;
+}
+
+.thread-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  margin: 1px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-muted);
+  transition: background 0.1s;
+}
+
+.thread-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.thread-item.active {
+  background: var(--accent-subtle);
+  color: var(--accent-light);
+}
+
+.thread-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.thread-time {
+  font-size: 10px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.thread-new {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.thread-new:hover {
+  color: var(--accent-light);
+}
+
+/* ═══════════════════════ File Tree ═══════════════════════ */
+#file-tree-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#file-tree-header {
+  padding: 8px 12px 4px;
+}
+
+#file-tree-header .label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+}
+
 #file-tree {
   flex: 1;
   overflow-y: auto;
