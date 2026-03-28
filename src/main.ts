@@ -76,25 +76,25 @@ const searchClose = document.getElementById("search-close")!;
 // ---- Custom editor theme to match x-lock palette ----
 const zauriTheme = EditorView.theme({
   "&": {
-    backgroundColor: "#050505 !important",
+    backgroundColor: "#0e0e10 !important",
   },
   ".cm-gutters": {
-    backgroundColor: "#050505 !important",
-    borderRight: "1px solid #1e1e22 !important",
-    color: "#55555e !important",
+    backgroundColor: "#0e0e10 !important",
+    borderRight: "0.5px solid rgba(255,255,255,0.06) !important",
+    color: "rgba(255,255,255,0.2) !important",
   },
   ".cm-activeLineGutter": {
-    backgroundColor: "#141416 !important",
-    color: "#8b8b96 !important",
+    backgroundColor: "rgba(255,255,255,0.03) !important",
+    color: "rgba(255,255,255,0.4) !important",
   },
   ".cm-activeLine": {
-    backgroundColor: "rgba(168, 85, 247, 0.04) !important",
+    backgroundColor: "rgba(168, 130, 255, 0.04) !important",
   },
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground": {
-    backgroundColor: "rgba(168, 85, 247, 0.2) !important",
+    backgroundColor: "rgba(168, 130, 255, 0.2) !important",
   },
   ".cm-cursor": {
-    borderLeftColor: "#c084fc !important",
+    borderLeftColor: "#a882ff !important",
   },
 });
 
@@ -315,17 +315,38 @@ function closeTab(path: string) {
 function showWelcome() {
   editorContainer.innerHTML = `
     <div id="welcome" class="fade-in">
-      <h1>Zauri</h1>
-      <p class="subtitle">Pick a Workspace Item or Start Something New</p>
-      <div class="actions">
-        <button class="action-btn" id="welcome-open-folder">Open Folder</button>
-      </div>
-      <div class="shortcuts">
-        <div class="shortcut"><kbd>Cmd+O</kbd> <span>Open Folder</span></div>
-        <div class="shortcut"><kbd>Cmd+S</kbd> <span>Save File</span></div>
-        <div class="shortcut"><kbd>Cmd+Shift+F</kbd> <span>Search in Files</span></div>
-        <div class="shortcut"><kbd>Cmd+L</kbd> <span>AI Assistant</span></div>
-        <div class="shortcut"><kbd>Cmd+\`</kbd> <span>Terminal</span></div>
+      <div class="welcome-glow welcome-glow-1"></div>
+      <div class="welcome-glow welcome-glow-2"></div>
+      <div class="welcome-inner">
+        <h1>Zauri</h1>
+        <p class="subtitle">Pick a workspace item or start something new</p>
+        <div class="welcome-buttons">
+          <button class="welcome-btn primary" id="welcome-open-folder">Open folder</button>
+          <button class="welcome-btn" id="welcome-new-file">New file</button>
+        </div>
+        <div class="welcome-shortcuts">
+          <div class="welcome-shortcut featured">
+            <span class="shortcut-key">\u2318 L</span>
+            <span class="shortcut-label">AI assistant</span>
+            <span class="shortcut-badge">NEW</span>
+          </div>
+          <div class="welcome-shortcut">
+            <span class="shortcut-key">\u2318 O</span>
+            <span class="shortcut-label">Open folder</span>
+          </div>
+          <div class="welcome-shortcut">
+            <span class="shortcut-key">\u2318 \u21E7 F</span>
+            <span class="shortcut-label">Search in files</span>
+          </div>
+          <div class="welcome-shortcut">
+            <span class="shortcut-key">\u2318 \`</span>
+            <span class="shortcut-label">Terminal</span>
+          </div>
+          <div class="welcome-shortcut">
+            <span class="shortcut-key">\u2318 \u21E7 G</span>
+            <span class="shortcut-label">Git</span>
+          </div>
+        </div>
       </div>
     </div>
   `;
