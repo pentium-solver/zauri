@@ -1261,6 +1261,31 @@ body {
   cursor: not-allowed;
 }
 
+#ai-send.hidden, #ai-stop.hidden {
+  display: none;
+}
+
+#ai-stop {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(248, 113, 113, 0.15);
+  border: 0.5px solid rgba(248, 113, 113, 0.25);
+  border-radius: 50%;
+  color: var(--error);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+
+#ai-stop:hover {
+  background: rgba(248, 113, 113, 0.25);
+  border-color: rgba(248, 113, 113, 0.4);
+  transform: scale(1.05);
+}
+
 /* Loading dots */
 .ai-loading-dots {
   display: flex;

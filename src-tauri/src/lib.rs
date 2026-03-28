@@ -390,6 +390,10 @@ fn git_pull(working_dir: String) -> Result<String, String> {
 
 // ---- AI Integration: Claude CLI agent ----
 
+// Track the current AI child process for cancellation
+static AI_CHILD_PID: std::sync::LazyLock<Arc<Mutex<Option<u32>>>> =
+    std::sync::LazyLock::new(|| Arc::new(Mutex::new(None)));
+
 #[tauri::command]
 fn check_ai_provider(provider: String) -> Result<String, String> {
     let (cmd, args): (&str, &[&str]) = match provider.as_str() {
@@ -540,6 +544,12 @@ fn ai_chat(
 
         match result {
             Ok(mut child) => {
+                // Store PID for cancellation
+                {
+                    let mut pid = AI_CHILD_PID.lock().unwrap();
+                    *pid = Some(child.id());
+                }
+
                 if use_stdin {
                     if let Some(mut stdin) = child.stdin.take() {
                         use std::io::Write;
@@ -605,13 +615,16 @@ fn ai_chat(
 
                                 // ---- Codex events (--json JSONL) ----
                                 Some("item.completed") => {
-                                    // Codex final message
+                                    // Codex complete message chunk — may arrive multiple times
                                     if let Some(text) = event
                                         .get("item")
                                         .and_then(|i| i.get("text"))
                                         .and_then(|t| t.as_str())
                                     {
-                                        let _ = app_handle.emit("ai-response-chunk", text);
+                                        if !text.is_empty() {
+                                            // Emit with trailing space to prevent run-on
+                                            let _ = app_handle.emit("ai-response-chunk", text);
+                                        }
                                     }
                                 }
                                 Some("item.content_delta") => {
@@ -657,9 +670,14 @@ fn ai_chat(
                     }
                 }
 
+                // Clear PID
+                {
+                    let mut pid = AI_CHILD_PID.lock().unwrap();
+                    *pid = None;
+                }
+
                 match child.wait() {
                     Ok(status) => {
-                        // Only emit done if not already emitted by "result" event
                         if !got_result {
                             let _ = app_handle.emit(
                                 "ai-response-done",
@@ -857,6 +875,20 @@ fn terminal_exec(
 }
 
 #[tauri::command]
+fn ai_cancel() -> Result<(), String> {
+    let mut pid = AI_CHILD_PID.lock().unwrap();
+    if let Some(p) = pid.take() {
+        eprintln!("[ai] Cancelling process {}", p);
+        let _ = Command::new("kill")
+            .args(["-TERM", &format!("-{}", p)])
+            .output();
+        Ok(())
+    } else {
+        Ok(())
+    }
+}
+
+#[tauri::command]
 fn get_startup_time() -> f64 {
     let pid = std::process::id();
     eprintln!("[perf] startup check for pid {}", pid);
@@ -889,6 +921,7 @@ pub fn run() {
             git_pull,
             check_ai_provider,
             ai_chat,
+            ai_cancel,
             terminal_spawn,
             terminal_write,
             terminal_resize,

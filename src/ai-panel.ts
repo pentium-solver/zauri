@@ -38,6 +38,12 @@ export function createAIPanel(): HTMLElement {
             <path d="M6 4l5 4-5 4" fill="currentColor"/>
           </svg>
         </button>
+        <button id="ai-stop" class="hidden" title="Stop (Esc)">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="7" fill="currentColor" opacity="0.15"/>
+            <rect x="5" y="5" width="6" height="6" rx="1" fill="currentColor"/>
+          </svg>
+        </button>
       </div>
       <div id="ai-toolbar">
         <button class="ai-provider-btn active" data-provider="claude" title="Claude Code">
@@ -87,6 +93,7 @@ export function initAIPanel(
   const messagesContainer = document.getElementById("ai-messages")!;
   const input = document.getElementById("ai-input") as HTMLTextAreaElement;
   const sendBtn = document.getElementById("ai-send")!;
+  const stopBtn = document.getElementById("ai-stop")!;
   const closeBtn = document.getElementById("ai-close")!;
   const statusEl = document.getElementById("ai-status")!;
   const contextBar = document.getElementById("ai-context-bar")!;
@@ -204,6 +211,7 @@ export function initAIPanel(
       providerBtns.forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       currentProvider = btn.dataset.provider || "claude";
+      activeProviderName = currentProvider === "codex" ? "Codex" : "Claude";
       switchProviderConfig(currentProvider);
       checkProvider(statusEl, currentProvider);
     });
@@ -246,6 +254,20 @@ export function initAIPanel(
   closeBtn.addEventListener("click", () => panel.classList.add("hidden"));
 
   sendBtn.addEventListener("click", () => sendMessage());
+  stopBtn.addEventListener("click", async () => {
+    try {
+      await invoke("ai_cancel");
+    } catch { /* ignore */ }
+    removeLoading();
+    isStreaming = false;
+    sendBtn.classList.remove("hidden");
+    stopBtn.classList.add("hidden");
+    sendBtn.removeAttribute("disabled");
+    input.removeAttribute("disabled");
+    input.focus();
+    statusEl.textContent = "Cancelled";
+    statusEl.className = "ai-status error";
+  });
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -403,6 +425,8 @@ export function initAIPanel(
 
     statusEl.textContent = event.payload === "ok" ? "Ready" : "Error";
     statusEl.className = `ai-status ${event.payload === "ok" ? "ready" : "error"}`;
+    sendBtn.classList.remove("hidden");
+    stopBtn.classList.add("hidden");
     sendBtn.removeAttribute("disabled");
     input.removeAttribute("disabled");
     input.focus();
@@ -426,7 +450,8 @@ export function initAIPanel(
 
     input.value = "";
     input.style.height = "auto";
-    sendBtn.setAttribute("disabled", "true");
+    sendBtn.classList.add("hidden");
+    stopBtn.classList.remove("hidden");
     input.setAttribute("disabled", "true");
     statusEl.textContent = "Thinking...";
     statusEl.className = "ai-status thinking";
@@ -499,13 +524,16 @@ function renderMarkdown(text: string): string {
 // Expose for thread switching
 (window as any).__renderMarkdown = renderMarkdown;
 
+// Track current provider name globally for message headers
+let activeProviderName = "Claude";
+
 function createMessageEl(role: string, content: string): HTMLElement {
   const el = document.createElement("div");
   el.className = `ai-msg ai-msg-${role} fade-in`;
 
   const header = document.createElement("div");
   header.className = "ai-msg-header";
-  header.textContent = role === "user" ? "You" : role === "assistant" ? "Claude" : "System";
+  header.textContent = role === "user" ? "You" : role === "assistant" ? activeProviderName : "System";
 
   const body = document.createElement("div");
   body.className = "ai-msg-content";
