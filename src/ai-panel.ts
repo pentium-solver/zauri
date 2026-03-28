@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { marked } from "marked";
 import { parseEditsFromResponse, type ProposedEdit } from "./ai-edits";
 import { getSettings, updateAISettings } from "./settings";
+import { getThreadProvider, setThreadProvider, forkThread } from "./projects";
 
 interface ChatMessage {
   role: "user" | "assistant" | "system";
@@ -212,16 +213,68 @@ export function initAIPanel(
   // Provider buttons
   const providerBtns = panel.querySelectorAll<HTMLButtonElement>(".ai-provider-btn");
   providerBtns.forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", async () => {
+      const targetProvider = btn.dataset.provider || "claude";
+      if (targetProvider === currentProvider) return;
+
+      // Check if current thread is locked to a different provider
+      const threadId = threadCallbacks?.getActiveThreadId();
+      if (threadId) {
+        const lockedProvider = getThreadProvider(threadId);
+        if (lockedProvider && lockedProvider !== targetProvider) {
+          // Offer to fork
+          showForkDialog(threadId, targetProvider, messagesContainer);
+          return;
+        }
+      }
+
       providerBtns.forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
-      currentProvider = btn.dataset.provider || "claude";
+      currentProvider = targetProvider;
       activeProviderName = currentProvider === "codex" ? "Codex" : "Claude";
       switchProviderConfig(currentProvider);
       checkProvider(statusEl, currentProvider);
       updateAISettings(currentProvider, modelBtn.dataset.value || "", permBtn.dataset.value || "");
     });
   });
+
+  function showForkDialog(threadId: string, targetProvider: string, container: HTMLElement) {
+    // Remove existing dialog
+    document.getElementById("fork-dialog")?.remove();
+
+    const dialog = document.createElement("div");
+    dialog.id = "fork-dialog";
+    dialog.className = "ai-fork-dialog fade-in";
+    const targetName = targetProvider === "codex" ? "Codex" : "Claude";
+    dialog.innerHTML = `
+      <div class="fork-dialog-text">
+        This thread is locked to <strong>${activeProviderName}</strong>.
+        Fork to <strong>${targetName}</strong>?
+      </div>
+      <div class="fork-dialog-actions">
+        <button class="fork-btn primary" id="fork-confirm">Fork conversation</button>
+        <button class="fork-btn" id="fork-cancel">Cancel</button>
+      </div>
+    `;
+
+    dialog.querySelector("#fork-confirm")?.addEventListener("click", async () => {
+      const forked = await forkThread(threadId, targetProvider);
+      dialog.remove();
+      if (forked && threadCallbacks) {
+        // Emit a custom event to switch to the new thread
+        window.dispatchEvent(new CustomEvent("zauri-switch-thread", {
+          detail: { threadId: forked.id },
+        }));
+      }
+    });
+
+    dialog.querySelector("#fork-cancel")?.addEventListener("click", () => {
+      dialog.remove();
+    });
+
+    container.appendChild(dialog);
+    container.scrollTop = container.scrollHeight;
+  }
 
   // Restore saved AI settings
   const savedSettings = getSettings();
@@ -509,6 +562,9 @@ export function initAIPanel(
     // Add user message
     messages.push({ role: "user", content: text, timestamp: Date.now() });
     threadCallbacks?.saveMessage("user", text);
+    // Lock thread to current provider on first message
+    const tid = threadCallbacks?.getActiveThreadId();
+    if (tid) setThreadProvider(tid, currentProvider);
     const msg = createMessageEl("user", text);
     messagesContainer.appendChild(msg);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;

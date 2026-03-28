@@ -938,6 +938,28 @@ document.getElementById("status-revert")?.addEventListener("click", revertLast);
 // Load projects on startup
 loadProjects().then(() => renderProjects());
 
+// Listen for thread fork events from AI panel
+window.addEventListener("zauri-switch-thread", ((e: CustomEvent) => {
+  const { threadId } = e.detail;
+  if (!threadId) return;
+  // Find the thread and its project
+  const allProjects = getProjects();
+  for (const project of allProjects) {
+    const threads = getThreadsForProject(project.id);
+    const thread = threads.find((t: Thread) => t.id === threadId);
+    if (thread) {
+      switchToThread(thread, project.workspaceRoot);
+      renderProjects();
+      // Also open the AI panel if not visible
+      const aiPanel = document.getElementById("ai-panel");
+      if (aiPanel?.classList.contains("hidden")) {
+        toggleAIPanel();
+      }
+      break;
+    }
+  }
+}) as EventListener);
+
 // Init git status polling
 initGitStatus(() => rootPath);
 

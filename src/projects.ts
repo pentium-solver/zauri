@@ -16,7 +16,8 @@ export interface Thread {
   title: string;
   createdAt: string;
   messages: ThreadMessage[];
-  sessionId?: string; // Claude CLI session ID for conversation continuity
+  sessionId?: string;
+  provider?: string; // "claude" | "codex" — locked after first message
 }
 
 export interface ThreadMessage {
@@ -145,6 +146,35 @@ export async function setThreadSessionId(threadId: string, sessionId: string) {
 
 export function getThreadSessionId(threadId: string): string | undefined {
   return store.threads.find((t) => t.id === threadId)?.sessionId;
+}
+
+export async function setThreadProvider(threadId: string, provider: string) {
+  const thread = store.threads.find((t) => t.id === threadId);
+  if (thread && !thread.provider) {
+    thread.provider = provider;
+    await saveStore();
+  }
+}
+
+export function getThreadProvider(threadId: string): string | undefined {
+  return store.threads.find((t) => t.id === threadId)?.provider;
+}
+
+export async function forkThread(threadId: string, newProvider: string): Promise<Thread | null> {
+  const source = store.threads.find((t) => t.id === threadId);
+  if (!source) return null;
+
+  const forked: Thread = {
+    id: uid(),
+    projectId: source.projectId,
+    title: `${source.title} (${newProvider === "codex" ? "Codex" : "Claude"} fork)`,
+    createdAt: new Date().toISOString(),
+    messages: source.messages.map((m) => ({ ...m })),
+    provider: newProvider,
+  };
+  store.threads.push(forked);
+  await saveStore();
+  return forked;
 }
 
 export async function addMessageToThread(threadId: string, role: "user" | "assistant", content: string) {

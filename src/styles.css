@@ -1442,6 +1442,59 @@ body {
   50% { opacity: 0.5; }
 }
 
+/* ═══════════════════════ Fork Dialog ═══════════════════════ */
+.ai-fork-dialog {
+  margin: 8px;
+  padding: 12px 14px;
+  background: var(--bg-elevated);
+  border: 0.5px solid var(--border-light);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.fork-dialog-text {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.fork-dialog-text strong {
+  color: var(--text-primary);
+}
+
+.fork-dialog-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.fork-btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 0.5px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.fork-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.fork-btn.primary {
+  background: rgba(168, 130, 255, 0.12);
+  border-color: rgba(168, 130, 255, 0.25);
+  color: var(--accent-light);
+}
+
+.fork-btn.primary:hover {
+  background: rgba(168, 130, 255, 0.2);
+}
+
 /* ═══════════════════════ Diff Decorations ═══════════════════════ */
 .cm-diff-added {
   background: rgba(34, 197, 94, 0.1) !important;
