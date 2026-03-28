@@ -5,6 +5,8 @@ export interface ZauriSettings {
   tabSize: number;
   wordWrap: boolean;
   aiProvider: "claude" | "codex";
+  aiModel: string;
+  aiPermission: string;
   gitAuthorName: string;
   gitAuthorEmail: string;
 }
@@ -14,6 +16,8 @@ const defaults: ZauriSettings = {
   tabSize: 2,
   wordWrap: false,
   aiProvider: "claude",
+  aiModel: "claude-opus-4-6[1m]",
+  aiPermission: "default",
   gitAuthorName: "",
   gitAuthorEmail: "",
 };
@@ -44,6 +48,13 @@ export async function loadSettingsFromDisk(): Promise<ZauriSettings> {
 async function save() {
   await invoke("save_settings", { data: JSON.stringify(settings) });
   onChangeCallback?.(settings);
+}
+
+export async function updateAISettings(provider: string, model: string, permission: string) {
+  settings.aiProvider = provider as "claude" | "codex";
+  settings.aiModel = model;
+  settings.aiPermission = permission;
+  await save();
 }
 
 export function isSettingsOpen(): boolean {

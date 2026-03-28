@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { marked } from "marked";
 import { parseEditsFromResponse, type ProposedEdit } from "./ai-edits";
+import { getSettings, updateAISettings } from "./settings";
 
 interface ChatMessage {
   role: "user" | "assistant" | "system";
@@ -168,6 +169,8 @@ export function initAIPanel(
         triggerBtn.dataset.value = opt.value;
         triggerBtn.innerHTML = `${opt.label} <span class="dropdown-caret">&#9662;</span>`;
         menu.remove();
+        // Persist selection
+        updateAISettings(currentProvider, modelBtn.dataset.value || "", permBtn.dataset.value || "");
       });
       menu.appendChild(item);
     }
@@ -214,11 +217,34 @@ export function initAIPanel(
       activeProviderName = currentProvider === "codex" ? "Codex" : "Claude";
       switchProviderConfig(currentProvider);
       checkProvider(statusEl, currentProvider);
+      updateAISettings(currentProvider, modelBtn.dataset.value || "", permBtn.dataset.value || "");
     });
   });
 
-  // Check initial provider
-  checkProvider(statusEl, "claude");
+  // Restore saved AI settings
+  const savedSettings = getSettings();
+  if (savedSettings.aiProvider) {
+    currentProvider = savedSettings.aiProvider;
+    activeProviderName = currentProvider === "codex" ? "Codex" : "Claude";
+    providerBtns.forEach((b) => {
+      b.classList.toggle("active", b.dataset.provider === currentProvider);
+    });
+    switchProviderConfig(currentProvider);
+    // Restore saved model and permission
+    if (savedSettings.aiModel) {
+      modelBtn.dataset.value = savedSettings.aiModel;
+      const cfg = providerConfigs[currentProvider];
+      const modelOpt = cfg?.models.find((m: { value: string }) => m.value === savedSettings.aiModel);
+      if (modelOpt) modelBtn.innerHTML = `${modelOpt.label} <span class="dropdown-caret">&#9662;</span>`;
+    }
+    if (savedSettings.aiPermission) {
+      permBtn.dataset.value = savedSettings.aiPermission;
+      const cfg = providerConfigs[currentProvider];
+      const permOpt = cfg?.permissions.find((p: { value: string }) => p.value === savedSettings.aiPermission);
+      if (permOpt) permBtn.innerHTML = `${permOpt.label} <span class="dropdown-caret">&#9662;</span>`;
+    }
+  }
+  checkProvider(statusEl, currentProvider);
 
   // Resize handle
   const resizeHandle = document.getElementById("ai-resize-handle")!;
