@@ -733,38 +733,6 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
-.ai-header-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.ai-provider-select {
-  background: var(--bg-hover);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-family: inherit;
-  font-size: 11px;
-  padding: 3px 6px;
-  outline: none;
-  cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l3 3 3-3' stroke='%238b8b96' stroke-width='1.2'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 6px center;
-  padding-right: 20px;
-}
-
-.ai-provider-select:focus {
-  border-color: rgba(168, 85, 247, 0.5);
-}
-
-.ai-provider-select option {
-  background: var(--bg-card);
-  color: var(--text-primary);
-}
 
 .ai-header-actions {
   display: flex;
@@ -966,6 +934,81 @@ body {
 #ai-send:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* Loading dots */
+.ai-loading-dots {
+  display: flex;
+  gap: 4px;
+  padding: 8px 0;
+}
+
+.ai-loading-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-light);
+  animation: dotPulse 1.4s ease-in-out infinite;
+}
+
+.ai-loading-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.ai-loading-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes dotPulse {
+  0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
+}
+
+/* Provider toolbar at bottom */
+#ai-toolbar {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  gap: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.ai-provider-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ai-provider-btn:hover {
+  color: var(--text-muted);
+  background: var(--bg-hover);
+}
+
+.ai-provider-btn.active {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.ai-toolbar-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 4px;
+}
+
+.ai-toolbar-info {
+  font-size: 11px;
+  color: var(--text-dim);
 }
 
 @keyframes pulse {

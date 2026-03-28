@@ -19,12 +19,7 @@ export function createAIPanel(): HTMLElement {
   panel.innerHTML = `
     <div id="ai-resize-handle"></div>
     <div id="ai-header">
-      <div class="ai-header-left">
-        <select id="ai-provider" class="ai-provider-select">
-          <option value="claude">Claude</option>
-          <option value="codex">Codex</option>
-        </select>
-      </div>
+      <span class="ai-label">AI Assistant</span>
       <div class="ai-header-actions">
         <span id="ai-status" class="ai-status"></span>
         <button id="ai-close" class="ai-header-btn" title="Close">&times;</button>
@@ -36,10 +31,29 @@ export function createAIPanel(): HTMLElement {
       <div id="ai-composer">
         <textarea id="ai-input" placeholder="Ask about your code..." rows="3"></textarea>
         <button id="ai-send" title="Send (Enter)">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-            <path d="M2 14l12-6L2 2v5l8 1-8 1z" fill="currentColor"/>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="7" fill="currentColor" opacity="0.15"/>
+            <path d="M6 4l5 4-5 4" fill="currentColor"/>
           </svg>
         </button>
+      </div>
+      <div id="ai-toolbar">
+        <button class="ai-provider-btn active" data-provider="claude" title="Claude Code">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <path d="M8 1C4.134 1 1 4.134 1 8s3.134 7 7 7 7-3.134 7-7S11.866 1 8 1z" fill="#D97757" opacity="0.8"/>
+            <path d="M5.5 6.5l2.5 2 2.5-2M6 10h4" stroke="white" stroke-width="1" stroke-linecap="round"/>
+          </svg>
+          <span>Claude</span>
+        </button>
+        <button class="ai-provider-btn" data-provider="codex" title="Codex">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="6.5" stroke="#10A37F" stroke-width="1.2" fill="none"/>
+            <path d="M5.5 8a2.5 2.5 0 015 0M8 5.5v5" stroke="#10A37F" stroke-width="1" stroke-linecap="round"/>
+          </svg>
+          <span>Codex</span>
+        </button>
+        <div class="ai-toolbar-sep"></div>
+        <span id="ai-toolbar-status" class="ai-toolbar-info">Chat</span>
       </div>
     </div>
   `;
@@ -58,14 +72,22 @@ export function initAIPanel(
   const closeBtn = document.getElementById("ai-close")!;
   const statusEl = document.getElementById("ai-status")!;
   const contextBar = document.getElementById("ai-context-bar")!;
-  const providerSelect = document.getElementById("ai-provider") as HTMLSelectElement;
 
-  // Check provider availability
-  checkProvider(statusEl, "claude");
+  let currentProvider = "claude";
 
-  providerSelect.addEventListener("change", () => {
-    checkProvider(statusEl, providerSelect.value);
+  // Provider buttons
+  const providerBtns = panel.querySelectorAll<HTMLButtonElement>(".ai-provider-btn");
+  providerBtns.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      providerBtns.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      currentProvider = btn.dataset.provider || "claude";
+      checkProvider(statusEl, currentProvider);
+    });
   });
+
+  // Check initial provider
+  checkProvider(statusEl, "claude");
 
   // Resize handle
   const resizeHandle = document.getElementById("ai-resize-handle")!;
@@ -114,20 +136,30 @@ export function initAIPanel(
     input.style.height = Math.min(input.scrollHeight, 150) + "px";
   });
 
-  // Listen for streaming start signal
-  listen<string>("ai-response-start", () => {
-    if (!isStreaming) {
-      isStreaming = true;
-      const msg = createMessageEl("assistant", "");
-      messagesContainer.appendChild(msg);
-      currentStreamContent = "";
-    }
-  });
+  // --- Loading dots element ---
+  let loadingEl: HTMLElement | null = null;
 
-  // Listen for streaming response tokens — now arrives as individual tokens
+  function showLoading() {
+    loadingEl = document.createElement("div");
+    loadingEl.className = "ai-msg ai-msg-assistant ai-loading fade-in";
+    loadingEl.innerHTML = `<div class="ai-msg-header">Claude</div><div class="ai-loading-dots"><span></span><span></span><span></span></div>`;
+    messagesContainer.appendChild(loadingEl);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  }
+
+  function removeLoading() {
+    if (loadingEl) {
+      loadingEl.remove();
+      loadingEl = null;
+    }
+  }
+
+  // Listen for response chunks (from "assistant" event — partial text)
   listen<string>("ai-response-chunk", (event) => {
-    const token = event.payload;
-    if (!token) return;
+    const text = event.payload;
+    if (!text) return;
+
+    removeLoading();
 
     if (!isStreaming) {
       isStreaming = true;
@@ -136,8 +168,7 @@ export function initAIPanel(
       currentStreamContent = "";
     }
 
-    // Append token directly — no newline insertion, tokens include their own whitespace
-    currentStreamContent += token;
+    currentStreamContent += text;
     const lastMsg = messagesContainer.querySelector(".ai-msg:last-child .ai-msg-content");
     if (lastMsg) {
       lastMsg.textContent = currentStreamContent;
@@ -145,8 +176,33 @@ export function initAIPanel(
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   });
 
+  // Listen for definitive result (replaces any partial content)
+  listen<string>("ai-response-result", (event) => {
+    const text = event.payload;
+    if (!text) return;
+
+    removeLoading();
+
+    // If we already have a streaming message, update it with the final text
+    // If not, create a new message
+    if (!isStreaming) {
+      isStreaming = true;
+      const msg = createMessageEl("assistant", "");
+      messagesContainer.appendChild(msg);
+    }
+
+    currentStreamContent = text;
+    const lastMsg = messagesContainer.querySelector(".ai-msg:last-child .ai-msg-content");
+    if (lastMsg) {
+      lastMsg.textContent = text;
+    }
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  });
+
   listen<string>("ai-response-done", (event) => {
+    removeLoading();
     isStreaming = false;
+
     if (currentStreamContent) {
       messages.push({
         role: "assistant",
@@ -172,6 +228,9 @@ export function initAIPanel(
     messagesContainer.appendChild(msg);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
+    // Show loading dots
+    showLoading();
+
     input.value = "";
     input.style.height = "auto";
     sendBtn.setAttribute("disabled", "true");
@@ -187,7 +246,7 @@ export function initAIPanel(
       prompt: text,
       workingDir: rootPath,
       contextFiles: openFiles,
-      provider: providerSelect.value,
+      provider: currentProvider,
     }).catch((err) => {
       const errMsg = createMessageEl("system", `Error: ${err}`);
       messagesContainer.appendChild(errMsg);

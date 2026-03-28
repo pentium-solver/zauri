@@ -232,6 +232,12 @@ fn ai_chat(
     // Spawn AI CLI in a thread to avoid blocking
     let app_handle = app.clone();
     std::thread::spawn(move || {
+        // Claude CLI --print --output-format stream-json sends JSON lines:
+        //   {type:"system"} -> init
+        //   {type:"assistant", message:{content:[{text:"..."}]}} -> response text
+        //   {type:"result", result:"..."} -> final text
+        // It does NOT stream token-by-token. The response arrives as complete text.
+
         let (cmd, args): (String, Vec<String>) = match provider.as_str() {
             "codex" => (
                 "codex".to_string(),
@@ -271,63 +277,58 @@ fn ai_chat(
                     }
                 }
 
-                // Stream stdout in small chunks for real-time token passthrough
                 if let Some(stdout) = child.stdout.take() {
-                    let mut reader = BufReader::new(stdout);
-                    let mut line_buf = String::new();
-                    loop {
-                        line_buf.clear();
-                        match reader.read_line(&mut line_buf) {
-                            Ok(0) => break, // EOF
-                            Ok(_) => {
-                                let trimmed = line_buf.trim();
-                                if trimmed.is_empty() {
-                                    continue;
-                                }
-                                // stream-json format: each line is a JSON object
-                                // Parse and extract text content for real-time display
-                                if let Ok(event) =
-                                    serde_json::from_str::<serde_json::Value>(trimmed)
-                                {
-                                    match event.get("type").and_then(|t| t.as_str()) {
-                                        Some("content_block_delta") => {
-                                            if let Some(delta) = event.get("delta") {
-                                                if let Some(text) =
-                                                    delta.get("text").and_then(|t| t.as_str())
-                                                {
+                    let reader = BufReader::new(stdout);
+                    for line in reader.lines().map_while(Result::ok) {
+                        let trimmed = line.trim().to_string();
+                        if trimmed.is_empty() {
+                            continue;
+                        }
+
+                        // Try to parse as JSON (stream-json format)
+                        if let Ok(event) = serde_json::from_str::<serde_json::Value>(&trimmed) {
+                            match event.get("type").and_then(|t| t.as_str()) {
+                                Some("assistant") => {
+                                    // Extract text from message content array
+                                    if let Some(content) = event
+                                        .get("message")
+                                        .and_then(|m| m.get("content"))
+                                        .and_then(|c| c.as_array())
+                                    {
+                                        for block in content {
+                                            if let Some(text) =
+                                                block.get("text").and_then(|t| t.as_str())
+                                            {
+                                                if !text.is_empty() {
                                                     let _ = app_handle
                                                         .emit("ai-response-chunk", text);
                                                 }
                                             }
                                         }
-                                        Some("message_start") | Some("content_block_start") => {
-                                            // Signal that streaming has started
-                                            let _ = app_handle
-                                                .emit("ai-response-start", "streaming");
-                                        }
-                                        Some("message_stop") => {
-                                            // Message complete
-                                        }
-                                        Some("result") => {
-                                            // Final result from claude --print stream-json
-                                            if let Some(result_text) =
-                                                event.get("result").and_then(|r| r.as_str())
-                                            {
-                                                let _ = app_handle
-                                                    .emit("ai-response-chunk", result_text);
-                                            }
-                                        }
-                                        _ => {
-                                            // For non-JSON lines or unknown events,
-                                            // pass through as raw text
+                                    }
+                                }
+                                Some("result") => {
+                                    // Final result — use this as the definitive response
+                                    if let Some(text) =
+                                        event.get("result").and_then(|r| r.as_str())
+                                    {
+                                        // Only emit if we haven't already from "assistant"
+                                        // Check subtype to know if it succeeded
+                                        if event
+                                            .get("subtype")
+                                            .and_then(|s| s.as_str())
+                                            == Some("success")
+                                        {
+                                            let _ =
+                                                app_handle.emit("ai-response-result", text);
                                         }
                                     }
-                                } else {
-                                    // Not JSON — raw text output (e.g. from codex)
-                                    let _ = app_handle.emit("ai-response-chunk", trimmed);
                                 }
+                                _ => {} // system, rate_limit_event, etc — skip
                             }
-                            Err(_) => break,
+                        } else {
+                            // Raw text (non-JSON) — from codex or fallback
+                            let _ = app_handle.emit("ai-response-chunk", &trimmed);
                         }
                     }
                 }
