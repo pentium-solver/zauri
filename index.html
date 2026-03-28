@@ -10,23 +10,44 @@
     <div id="app">
       <div id="sidebar">
         <div id="sidebar-header">
-          <button id="open-folder-btn" title="Open Folder">Open Folder</button>
+          <span class="label">Explorer</span>
+          <div id="sidebar-actions">
+            <button class="sidebar-action-btn" id="open-folder-btn" title="Open Folder">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <path d="M1.5 2.5h4l1.5 1.5h7.5v9.5h-13z" stroke="currentColor" stroke-width="1.2" fill="none"/>
+                <line x1="8" y1="7" x2="8" y2="11" stroke="currentColor" stroke-width="1.2"/>
+                <line x1="6" y1="9" x2="10" y2="9" stroke="currentColor" stroke-width="1.2"/>
+              </svg>
+            </button>
+            <button class="sidebar-action-btn" id="search-btn" title="Search">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <circle cx="7" cy="7" r="4" stroke="currentColor" stroke-width="1.2"/>
+                <line x1="10" y1="10" x2="14" y2="14" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+              </svg>
+            </button>
+          </div>
         </div>
         <div id="file-tree"></div>
       </div>
       <div id="main">
         <div id="tab-bar"></div>
         <div id="editor-container">
-          <div id="welcome">
+          <div id="welcome" class="fade-in">
             <h1>Zauri</h1>
-            <p>Open a folder to get started</p>
-            <p class="shortcut">Ctrl/Cmd+O &mdash; Open Folder</p>
-            <p class="shortcut">Ctrl/Cmd+S &mdash; Save File</p>
-            <p class="shortcut">Ctrl/Cmd+Shift+F &mdash; Search in Files</p>
+            <p class="subtitle">Pick a Workspace Item or Start Something New</p>
+            <div class="actions">
+              <button class="action-btn" id="welcome-open-folder">Open Folder</button>
+            </div>
+            <div class="shortcuts">
+              <div class="shortcut"><kbd>Cmd+O</kbd> <span>Open Folder</span></div>
+              <div class="shortcut"><kbd>Cmd+S</kbd> <span>Save File</span></div>
+              <div class="shortcut"><kbd>Cmd+Shift+F</kbd> <span>Search in Files</span></div>
+            </div>
           </div>
         </div>
         <div id="search-panel" class="hidden">
           <div id="search-header">
+            <span class="search-label">Search</span>
             <input id="search-input" type="text" placeholder="Search in files..." />
             <button id="search-close">&times;</button>
           </div>

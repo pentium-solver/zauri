@@ -13,6 +13,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { rust } from "@codemirror/lang-rust";
 import { cpp } from "@codemirror/lang-cpp";
 import { searchKeymap } from "@codemirror/search";
+import { getFileIcon, getFolderIcon, chevronRight, chevronDown } from "./icons";
 
 // ---- Types ----
 interface DirEntry {
@@ -52,52 +53,60 @@ const searchPanel = document.getElementById("search-panel")!;
 const searchInput = document.getElementById("search-input") as HTMLInputElement;
 const searchResults = document.getElementById("search-results")!;
 const searchClose = document.getElementById("search-close")!;
-const openFolderBtn = document.getElementById("open-folder-btn")!;
 
 // ---- Language detection ----
 function getLanguageExtension(filename: string) {
   const ext = filename.split(".").pop()?.toLowerCase();
   switch (ext) {
-    case "js":
-    case "jsx":
-    case "mjs":
+    case "js": case "jsx": case "mjs":
       return javascript();
-    case "ts":
+    case "ts": case "mts":
+      return javascript({ typescript: true });
     case "tsx":
-    case "mts":
-      return javascript({ typescript: true, jsx: ext.includes("x") });
-    case "py":
-    case "pyw":
+      return javascript({ typescript: true, jsx: true });
+    case "py": case "pyw":
       return python();
-    case "html":
-    case "htm":
-    case "svelte":
-    case "vue":
+    case "html": case "htm": case "svelte": case "vue":
       return html();
-    case "css":
-    case "scss":
-    case "less":
+    case "css": case "scss": case "less":
       return css();
-    case "json":
-    case "jsonc":
+    case "json": case "jsonc":
       return json();
-    case "md":
-    case "mdx":
+    case "md": case "mdx":
       return markdown();
     case "rs":
       return rust();
-    case "c":
-    case "h":
-    case "cpp":
-    case "cxx":
-    case "cc":
-    case "hpp":
-    case "zig":
+    case "c": case "h": case "cpp": case "cxx": case "cc": case "hpp": case "zig":
       return cpp();
     default:
       return [];
   }
 }
+
+// ---- Custom editor theme to match x-lock palette ----
+const zauriTheme = EditorView.theme({
+  "&": {
+    backgroundColor: "#050505 !important",
+  },
+  ".cm-gutters": {
+    backgroundColor: "#050505 !important",
+    borderRight: "1px solid #1e1e22 !important",
+    color: "#55555e !important",
+  },
+  ".cm-activeLineGutter": {
+    backgroundColor: "#141416 !important",
+    color: "#8b8b96 !important",
+  },
+  ".cm-activeLine": {
+    backgroundColor: "rgba(168, 85, 247, 0.04) !important",
+  },
+  "&.cm-focused .cm-selectionBackground, .cm-selectionBackground": {
+    backgroundColor: "rgba(168, 85, 247, 0.2) !important",
+  },
+  ".cm-cursor": {
+    borderLeftColor: "#c084fc !important",
+  },
+});
 
 // ---- Editor ----
 function createEditorState(content: string, filename: string): EditorState {
@@ -106,6 +115,7 @@ function createEditorState(content: string, filename: string): EditorState {
     extensions: [
       basicSetup,
       oneDark,
+      zauriTheme,
       keymap.of(searchKeymap),
       getLanguageExtension(filename),
       EditorView.updateListener.of((update) => {
@@ -136,46 +146,97 @@ function setEditorContent(state: EditorState) {
   });
 }
 
-// ---- File tree ----
-async function loadDirectory(path: string, container: HTMLElement, depth = 0) {
+// ---- File tree with guide lines ----
+async function loadDirectory(path: string, container: HTMLElement, depth: number = 0) {
   try {
     const entries: DirEntry[] = await invoke("list_directory", { path });
+    const totalEntries = entries.length;
 
-    for (const entry of entries) {
+    entries.forEach((entry, index) => {
+      const isLast = index === totalEntries - 1;
+      const fullPath = `${path}/${entry.name}`;
+
       const item = document.createElement("div");
       item.className = "tree-item";
-      item.style.paddingLeft = `${8 + depth * 16}px`;
+      item.dataset.path = fullPath;
 
-      const icon = document.createElement("span");
-      icon.className = "icon";
-      icon.textContent = entry.is_dir ? "\u{1F4C1}" : "\u{1F4C4}";
+      // Build indent with guide lines
+      const indent = document.createElement("div");
+      indent.style.display = "flex";
+      indent.style.alignItems = "center";
+      indent.style.flexShrink = "0";
+      indent.style.paddingLeft = `${depth * 18 + 4}px`;
+      indent.style.position = "relative";
 
+      if (entry.is_dir) {
+        // Chevron for directories
+        const chevron = document.createElement("span");
+        chevron.className = "chevron";
+        chevron.innerHTML = chevronRight;
+        indent.appendChild(chevron);
+      } else {
+        // Spacer for files (no chevron)
+        const spacer = document.createElement("span");
+        spacer.className = "chevron-spacer";
+        indent.appendChild(spacer);
+      }
+
+      // Icon
+      const iconWrapper = document.createElement("span");
+      iconWrapper.className = "icon-wrapper";
+      if (entry.is_dir) {
+        iconWrapper.innerHTML = getFolderIcon(entry.name, false);
+      } else {
+        iconWrapper.innerHTML = getFileIcon(entry.name);
+      }
+
+      // Name
       const name = document.createElement("span");
       name.className = "name";
       name.textContent = entry.name;
 
-      item.appendChild(icon);
+      item.appendChild(indent);
+      item.appendChild(iconWrapper);
       item.appendChild(name);
       container.appendChild(item);
-
-      const fullPath = `${path}/${entry.name}`;
 
       if (entry.is_dir) {
         const children = document.createElement("div");
         children.className = "tree-children";
+        // Position guide line
+        children.style.position = "relative";
+
+        // Add vertical guide line
+        const guide = document.createElement("div");
+        guide.className = "tree-guide";
+        guide.style.left = `${depth * 18 + 12}px`;
+        if (isLast) {
+          // For the last item, we don't want the guide extending to infinity
+          guide.style.height = "0px"; // Will be updated when expanded
+        }
+        children.appendChild(guide);
+
         container.appendChild(children);
 
         let loaded = false;
         item.addEventListener("click", async (e) => {
           e.stopPropagation();
+          const chevron = item.querySelector(".chevron");
+          const iconEl = item.querySelector(".icon-wrapper");
           if (!loaded) {
             await loadDirectory(fullPath, children, depth + 1);
             loaded = true;
           }
-          children.classList.toggle("expanded");
-          icon.textContent = children.classList.contains("expanded")
-            ? "\u{1F4C2}"
-            : "\u{1F4C1}";
+          const isExpanded = children.classList.toggle("expanded");
+          if (chevron) chevron.innerHTML = isExpanded ? chevronDown : chevronRight;
+          if (iconEl) iconEl.innerHTML = getFolderIcon(entry.name, isExpanded);
+
+          // Update guide line height based on content
+          if (isExpanded) {
+            requestAnimationFrame(() => {
+              guide.style.height = `${children.scrollHeight}px`;
+            });
+          }
         });
       } else {
         item.addEventListener("click", (e) => {
@@ -183,7 +244,7 @@ async function loadDirectory(path: string, container: HTMLElement, depth = 0) {
           openFile(fullPath, entry.name);
         });
       }
-    }
+    });
   } catch (err) {
     console.error("Failed to load directory:", err);
   }
@@ -196,9 +257,16 @@ function renderTabs() {
     const tabEl = document.createElement("div");
     tabEl.className = `tab${path === activeTabPath ? " active" : ""}${tab.modified ? " modified" : ""}`;
 
+    // Tab icon
+    const tabIcon = document.createElement("span");
+    tabIcon.className = "tab-icon";
+    tabIcon.innerHTML = getFileIcon(tab.name);
+    tabEl.appendChild(tabIcon);
+
     const nameEl = document.createElement("span");
     nameEl.className = "tab-name";
     nameEl.textContent = tab.name;
+    tabEl.appendChild(nameEl);
 
     const closeEl = document.createElement("span");
     closeEl.className = "tab-close";
@@ -207,16 +275,14 @@ function renderTabs() {
       e.stopPropagation();
       closeTab(path);
     });
-
-    tabEl.appendChild(nameEl);
     tabEl.appendChild(closeEl);
+
     tabEl.addEventListener("click", () => switchTab(path));
     tabBar.appendChild(tabEl);
   }
 }
 
 function switchTab(path: string) {
-  // Save current editor state
   if (activeTabPath && editorView) {
     const currentTab = tabs.get(activeTabPath);
     if (currentTab) {
@@ -247,12 +313,30 @@ function closeTab(path: string) {
         editorView.destroy();
         editorView = null;
       }
-      editorContainer.innerHTML =
-        '<div id="welcome"><h1>Zauri</h1><p>Open a file from the tree</p></div>';
+      showWelcome();
       statusFile.textContent = "No file open";
     }
   }
   renderTabs();
+}
+
+// ---- Welcome screen ----
+function showWelcome() {
+  editorContainer.innerHTML = `
+    <div id="welcome" class="fade-in">
+      <h1>Zauri</h1>
+      <p class="subtitle">Pick a Workspace Item or Start Something New</p>
+      <div class="actions">
+        <button class="action-btn" id="welcome-open-folder">Open Folder</button>
+      </div>
+      <div class="shortcuts">
+        <div class="shortcut"><kbd>Cmd+O</kbd> <span>Open Folder</span></div>
+        <div class="shortcut"><kbd>Cmd+S</kbd> <span>Save File</span></div>
+        <div class="shortcut"><kbd>Cmd+Shift+F</kbd> <span>Search in Files</span></div>
+      </div>
+    </div>
+  `;
+  document.getElementById("welcome-open-folder")?.addEventListener("click", openFolder);
 }
 
 // ---- File operations ----
@@ -335,7 +419,6 @@ async function performSearch(query: string) {
       const el = document.createElement("div");
       el.className = "search-result";
 
-      // Show relative path
       const relPath = match.file.startsWith(rootPath!)
         ? match.file.slice(rootPath!.length + 1)
         : match.file;
@@ -388,12 +471,9 @@ function highlightActiveFile() {
   document.querySelectorAll(".tree-item.active").forEach((el) => {
     el.classList.remove("active");
   });
-  // Simple approach: find by text content match
   if (activeTabPath) {
-    const name = activeTabPath.split("/").pop();
     document.querySelectorAll(".tree-item").forEach((el) => {
-      const nameEl = el.querySelector(".name");
-      if (nameEl && nameEl.textContent === name) {
+      if ((el as HTMLElement).dataset.path === activeTabPath) {
         el.classList.add("active");
       }
     });
@@ -410,7 +490,7 @@ document.addEventListener("keydown", (e) => {
   } else if (mod && e.key === "o") {
     e.preventDefault();
     openFolder();
-  } else if (mod && e.shiftKey && e.key === "F") {
+  } else if (mod && e.shiftKey && (e.key === "F" || e.key === "f")) {
     e.preventDefault();
     toggleSearch();
   } else if (e.key === "Escape") {
@@ -421,7 +501,7 @@ document.addEventListener("keydown", (e) => {
 });
 
 // ---- Event listeners ----
-openFolderBtn.addEventListener("click", openFolder);
+document.getElementById("open-folder-btn")?.addEventListener("click", openFolder);
 searchClose.addEventListener("click", () => searchPanel.classList.add("hidden"));
 
 searchInput.addEventListener("input", () => {
@@ -431,7 +511,7 @@ searchInput.addEventListener("input", () => {
   }, 300);
 });
 
-// ---- Startup metrics ----
+// ---- Startup ----
 window.addEventListener("DOMContentLoaded", () => {
   const loadTime = performance.now() - startTime;
   statusPerf.textContent = `Ready in ${loadTime.toFixed(0)}ms`;
