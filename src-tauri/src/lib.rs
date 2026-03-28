@@ -487,6 +487,9 @@ fn ai_chat(
                 // Sandbox/approval mode
                 match permission_mode.as_deref() {
                     Some("never") => codex_args.push("--dangerously-bypass-approvals-and-sandbox".to_string()),
+                    Some("untrusted") | Some("on-request") => {
+                        // No --full-auto: codex exec runs with default approval
+                    }
                     _ => codex_args.push("--full-auto".to_string()),
                 }
                 if let Some(ref m) = model {

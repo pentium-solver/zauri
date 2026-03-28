@@ -139,6 +139,8 @@ export function initAIPanel(
       defaultModel: "gpt-5.4",
       defaultModelLabel: "GPT-5.4",
       permissions: [
+        { value: "untrusted", label: "Suggest" },
+        { value: "on-request", label: "Normal" },
         { value: "full-auto", label: "Full Auto" },
         { value: "never", label: "Bypass Sandbox" },
       ],
@@ -230,18 +232,22 @@ export function initAIPanel(
       b.classList.toggle("active", b.dataset.provider === currentProvider);
     });
     switchProviderConfig(currentProvider);
-    // Restore saved model and permission
-    if (savedSettings.aiModel) {
-      modelBtn.dataset.value = savedSettings.aiModel;
-      const cfg = providerConfigs[currentProvider];
-      const modelOpt = cfg?.models.find((m: { value: string }) => m.value === savedSettings.aiModel);
-      if (modelOpt) modelBtn.innerHTML = `${modelOpt.label} <span class="dropdown-caret">&#9662;</span>`;
+    // Restore saved model/permission ONLY if they belong to this provider
+    const cfg = providerConfigs[currentProvider];
+    if (savedSettings.aiModel && cfg) {
+      const modelOpt = cfg.models.find((m: { value: string }) => m.value === savedSettings.aiModel);
+      if (modelOpt) {
+        modelBtn.dataset.value = savedSettings.aiModel;
+        modelBtn.innerHTML = `${modelOpt.label} <span class="dropdown-caret">&#9662;</span>`;
+      }
+      // else: keep the default set by switchProviderConfig
     }
-    if (savedSettings.aiPermission) {
-      permBtn.dataset.value = savedSettings.aiPermission;
-      const cfg = providerConfigs[currentProvider];
-      const permOpt = cfg?.permissions.find((p: { value: string }) => p.value === savedSettings.aiPermission);
-      if (permOpt) permBtn.innerHTML = `${permOpt.label} <span class="dropdown-caret">&#9662;</span>`;
+    if (savedSettings.aiPermission && cfg) {
+      const permOpt = cfg.permissions.find((p: { value: string }) => p.value === savedSettings.aiPermission);
+      if (permOpt) {
+        permBtn.dataset.value = savedSettings.aiPermission;
+        permBtn.innerHTML = `${permOpt.label} <span class="dropdown-caret">&#9662;</span>`;
+      }
     }
   }
   checkProvider(statusEl, currentProvider);
@@ -445,6 +451,42 @@ export function initAIPanel(
 
           // Also show first edit in editor
           editCallbacks.showProposedEdit(edits[0]);
+        } else if (currentProvider === "codex" && root) {
+          // Codex edits files directly — check git for changes and offer review
+          invoke("git_status", { workingDir: root }).then((status: any) => {
+            const total = (status?.modified || 0) + (status?.added || 0) + (status?.deleted || 0);
+            if (total > 0) {
+              const reviewEl = document.createElement("div");
+              reviewEl.className = "ai-proposed-changes fade-in";
+              reviewEl.innerHTML = `
+                <div class="ai-changes-header">
+                  <span>Codex made ${total} file change${total > 1 ? "s" : ""}</span>
+                  <div class="ai-changes-actions">
+                    <button class="ai-changes-btn accept-all" id="codex-accept">Keep Changes</button>
+                    <button class="ai-changes-btn reject-all" id="codex-revert">Revert All</button>
+                  </div>
+                </div>
+              `;
+              reviewEl.querySelector("#codex-accept")?.addEventListener("click", () => {
+                reviewEl.remove();
+              });
+              reviewEl.querySelector("#codex-revert")?.addEventListener("click", async () => {
+                try {
+                  await invoke("git_checkout_files", { workingDir: root });
+                } catch {
+                  // Fallback: git checkout .
+                  await invoke("terminal_exec", {
+                    command: "git checkout .",
+                    workingDir: root,
+                    terminalId: "revert",
+                  });
+                }
+                reviewEl.remove();
+              });
+              messagesContainer.appendChild(reviewEl);
+              messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+          }).catch(() => {});
         }
       }
     }
