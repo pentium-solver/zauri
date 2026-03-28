@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::ffi::CString;
+use std::io::{BufRead, BufReader};
+use std::process::{Command, Stdio};
 use std::time::Instant;
+use tauri::Emitter;
 
 // FFI bindings to Zig backend
 extern "C" {
@@ -161,12 +164,123 @@ fn search_files(root_path: String, query: String) -> Result<Vec<SearchMatch>, St
     Ok(matches)
 }
 
+// ---- AI Integration: Claude CLI agent ----
+
+#[tauri::command]
+fn check_claude_cli() -> Result<String, String> {
+    let output = Command::new("claude")
+        .args(["--version"])
+        .output()
+        .map_err(|e| format!("Claude CLI not found: {}. Install with: npm install -g @anthropic-ai/claude-code", e))?;
+
+    if output.status.success() {
+        let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        Ok(version)
+    } else {
+        Err("Claude CLI not responding".to_string())
+    }
+}
+
+#[tauri::command]
+fn ai_chat(
+    app: tauri::AppHandle,
+    prompt: String,
+    working_dir: String,
+    context_files: Vec<String>,
+) -> Result<(), String> {
+    // Build context from open files
+    let mut full_prompt = String::new();
+
+    if !context_files.is_empty() {
+        full_prompt.push_str("I have these files open in my editor:\n\n");
+        for file_path in &context_files {
+            let c_path = CString::new(file_path.clone()).map_err(|e| e.to_string())?;
+            let mut buf = vec![0u8; BUF_SIZE as usize];
+            let mut bytes_read: u32 = 0;
+
+            let result = unsafe {
+                zauri_read_file(c_path.as_ptr(), buf.as_mut_ptr(), BUF_SIZE, &mut bytes_read)
+            };
+
+            if result == 0 {
+                let content = String::from_utf8_lossy(&buf[..bytes_read as usize]);
+                // Truncate large files to keep context manageable
+                let truncated = if content.len() > 5000 {
+                    format!("{}...\n[truncated, {} total bytes]", &content[..5000], content.len())
+                } else {
+                    content.to_string()
+                };
+                full_prompt.push_str(&format!("--- {} ---\n{}\n\n", file_path, truncated));
+            }
+        }
+        full_prompt.push_str("---\n\n");
+    }
+
+    full_prompt.push_str(&prompt);
+
+    // Spawn claude CLI in a thread to avoid blocking
+    let app_handle = app.clone();
+    std::thread::spawn(move || {
+        let result = Command::new("claude")
+            .args([
+                "--print",           // Non-interactive, print response
+                "--output-format", "text",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .current_dir(&working_dir)
+            .spawn();
+
+        match result {
+            Ok(mut child) => {
+                // Write prompt to stdin
+                if let Some(mut stdin) = child.stdin.take() {
+                    use std::io::Write;
+                    let _ = stdin.write_all(full_prompt.as_bytes());
+                    drop(stdin); // Close stdin to signal EOF
+                }
+
+                // Stream stdout line by line
+                if let Some(stdout) = child.stdout.take() {
+                    let reader = BufReader::new(stdout);
+                    for line in reader.lines() {
+                        if let Ok(line) = line {
+                            let _ = app_handle.emit("ai-response-chunk", &line);
+                        }
+                    }
+                }
+
+                // Wait for process to finish
+                match child.wait() {
+                    Ok(status) => {
+                        let _ = app_handle.emit(
+                            "ai-response-done",
+                            if status.success() { "ok" } else { "error" },
+                        );
+                    }
+                    Err(e) => {
+                        let _ = app_handle.emit("ai-response-done", &format!("error: {}", e));
+                    }
+                }
+            }
+            Err(e) => {
+                let _ = app_handle.emit(
+                    "ai-response-done",
+                    &format!("Failed to start Claude CLI: {}", e),
+                );
+            }
+        }
+    });
+
+    Ok(())
+}
+
 #[tauri::command]
 fn get_startup_time() -> f64 {
-    // Return time since process start
     let pid = std::process::id();
     eprintln!("[perf] startup check for pid {}", pid);
-    0.0 // Frontend will track actual perceived startup
+    0.0
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -182,6 +296,8 @@ pub fn run() {
             list_directory,
             search_files,
             get_startup_time,
+            check_claude_cli,
+            ai_chat,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

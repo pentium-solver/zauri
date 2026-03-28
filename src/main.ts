@@ -4,16 +4,10 @@ import { EditorView, keymap } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
 import { basicSetup } from "codemirror";
 import { oneDark } from "@codemirror/theme-one-dark";
-import { javascript } from "@codemirror/lang-javascript";
-import { python } from "@codemirror/lang-python";
-import { html } from "@codemirror/lang-html";
-import { css } from "@codemirror/lang-css";
-import { json } from "@codemirror/lang-json";
-import { markdown } from "@codemirror/lang-markdown";
-import { rust } from "@codemirror/lang-rust";
-import { cpp } from "@codemirror/lang-cpp";
 import { searchKeymap } from "@codemirror/search";
 import { getFileIcon, getFolderIcon, chevronRight, chevronDown } from "./icons";
+import { getLanguageExtension } from "./languages";
+import { createAIPanel, initAIPanel, toggleAIPanel } from "./ai-panel";
 
 // ---- Types ----
 interface DirEntry {
@@ -53,35 +47,6 @@ const searchPanel = document.getElementById("search-panel")!;
 const searchInput = document.getElementById("search-input") as HTMLInputElement;
 const searchResults = document.getElementById("search-results")!;
 const searchClose = document.getElementById("search-close")!;
-
-// ---- Language detection ----
-function getLanguageExtension(filename: string) {
-  const ext = filename.split(".").pop()?.toLowerCase();
-  switch (ext) {
-    case "js": case "jsx": case "mjs":
-      return javascript();
-    case "ts": case "mts":
-      return javascript({ typescript: true });
-    case "tsx":
-      return javascript({ typescript: true, jsx: true });
-    case "py": case "pyw":
-      return python();
-    case "html": case "htm": case "svelte": case "vue":
-      return html();
-    case "css": case "scss": case "less":
-      return css();
-    case "json": case "jsonc":
-      return json();
-    case "md": case "mdx":
-      return markdown();
-    case "rs":
-      return rust();
-    case "c": case "h": case "cpp": case "cxx": case "cc": case "hpp": case "zig":
-      return cpp();
-    default:
-      return [];
-  }
-}
 
 // ---- Custom editor theme to match x-lock palette ----
 const zauriTheme = EditorView.theme({
@@ -333,6 +298,7 @@ function showWelcome() {
         <div class="shortcut"><kbd>Cmd+O</kbd> <span>Open Folder</span></div>
         <div class="shortcut"><kbd>Cmd+S</kbd> <span>Save File</span></div>
         <div class="shortcut"><kbd>Cmd+Shift+F</kbd> <span>Search in Files</span></div>
+        <div class="shortcut"><kbd>Cmd+L</kbd> <span>AI Assistant</span></div>
       </div>
     </div>
   `;
@@ -493,8 +459,14 @@ document.addEventListener("keydown", (e) => {
   } else if (mod && e.shiftKey && (e.key === "F" || e.key === "f")) {
     e.preventDefault();
     toggleSearch();
+  } else if (mod && e.key === "l") {
+    e.preventDefault();
+    toggleAIPanel();
   } else if (e.key === "Escape") {
-    if (!searchPanel.classList.contains("hidden")) {
+    const aiPanel = document.getElementById("ai-panel");
+    if (aiPanel && !aiPanel.classList.contains("hidden")) {
+      aiPanel.classList.add("hidden");
+    } else if (!searchPanel.classList.contains("hidden")) {
       searchPanel.classList.add("hidden");
     }
   }
@@ -510,6 +482,19 @@ searchInput.addEventListener("input", () => {
     performSearch(searchInput.value);
   }, 300);
 });
+
+// ---- AI Panel setup ----
+const aiPanelEl = createAIPanel();
+document.getElementById("app")!.appendChild(aiPanelEl);
+initAIPanel(
+  () => activeTabPath,
+  () => Array.from(tabs.keys()),
+  () => rootPath,
+);
+
+// Wire up sidebar AI button and search button
+document.getElementById("search-btn")?.addEventListener("click", toggleSearch);
+document.getElementById("ai-btn")?.addEventListener("click", toggleAIPanel);
 
 // ---- Startup ----
 window.addEventListener("DOMContentLoaded", () => {
