@@ -123,20 +123,20 @@ export function initAIPanel(
     },
     codex: {
       models: [
+        { value: "gpt-5.4", label: "GPT-5.4" },
         { value: "o3", label: "o3" },
         { value: "o4-mini", label: "o4-mini" },
-        { value: "gpt-4.1", label: "GPT-4.1" },
         { value: "codex-mini", label: "Codex Mini" },
       ],
-      defaultModel: "o4-mini",
-      defaultModelLabel: "o4-mini",
+      defaultModel: "gpt-5.4",
+      defaultModelLabel: "GPT-5.4",
       permissions: [
-        { value: "suggest", label: "Suggest" },
-        { value: "auto-edit", label: "Auto Edit" },
-        { value: "full-auto", label: "Full Auto" },
+        { value: "untrusted", label: "Untrusted" },
+        { value: "on-request", label: "On Request" },
+        { value: "never", label: "Full Auto" },
       ],
-      defaultPerm: "full-auto",
-      defaultPermLabel: "Full Auto",
+      defaultPerm: "on-request",
+      defaultPermLabel: "On Request",
     },
   };
 
