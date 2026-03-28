@@ -835,10 +835,121 @@ body {
 
 .ai-msg-content {
   color: var(--text-primary);
-  white-space: pre-wrap;
   word-break: break-word;
   font-size: 13px;
   line-height: 1.55;
+}
+
+/* Markdown rendering inside AI messages */
+.ai-msg-content p {
+  margin: 0 0 8px;
+}
+
+.ai-msg-content p:last-child {
+  margin-bottom: 0;
+}
+
+.ai-msg-content strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.ai-msg-content em {
+  font-style: italic;
+}
+
+.ai-msg-content code {
+  background: rgba(168, 85, 247, 0.1);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.ai-msg-content pre {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 8px 0;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-msg-content pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: 12px;
+}
+
+.ai-msg-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 12px;
+}
+
+.ai-msg-content th,
+.ai-msg-content td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  text-align: left;
+}
+
+.ai-msg-content th {
+  background: var(--bg-hover);
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ai-msg-content ul,
+.ai-msg-content ol {
+  margin: 6px 0;
+  padding-left: 20px;
+}
+
+.ai-msg-content li {
+  margin: 2px 0;
+}
+
+.ai-msg-content h1,
+.ai-msg-content h2,
+.ai-msg-content h3,
+.ai-msg-content h4 {
+  margin: 10px 0 4px;
+  font-weight: 600;
+}
+
+.ai-msg-content h1 { font-size: 16px; }
+.ai-msg-content h2 { font-size: 14px; }
+.ai-msg-content h3 { font-size: 13px; }
+
+.ai-msg-content blockquote {
+  border-left: 3px solid var(--accent);
+  padding-left: 10px;
+  margin: 6px 0;
+  color: var(--text-muted);
+}
+
+.ai-msg-content a {
+  color: var(--accent-light);
+  text-decoration: none;
+}
+
+.ai-msg-content a:hover {
+  text-decoration: underline;
+}
+
+.ai-msg-content hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 8px 0;
 }
 
 #ai-input-area {

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { marked } from "marked";
 import { parseEditsFromResponse, type ProposedEdit } from "./ai-edits";
 
 interface ChatMessage {
@@ -199,6 +200,12 @@ export function initAIPanel(
         timestamp: Date.now(),
       });
 
+      // Re-render the last message as markdown
+      const lastMsg = messagesContainer.querySelector(".ai-msg-assistant:last-child .ai-msg-content");
+      if (lastMsg) {
+        lastMsg.innerHTML = renderMarkdown(responseText);
+      }
+
       // Parse for file edits
       const root = getRootPath();
       if (root && editCallbacks) {
@@ -343,6 +350,10 @@ async function checkProvider(statusEl: HTMLElement, provider: string) {
   }
 }
 
+function renderMarkdown(text: string): string {
+  return marked.parse(text, { async: false, gfm: true, breaks: true }) as string;
+}
+
 function createMessageEl(role: string, content: string): HTMLElement {
   const el = document.createElement("div");
   el.className = `ai-msg ai-msg-${role} fade-in`;
@@ -353,7 +364,12 @@ function createMessageEl(role: string, content: string): HTMLElement {
 
   const body = document.createElement("div");
   body.className = "ai-msg-content";
-  body.textContent = content;
+
+  if (role === "assistant" && content) {
+    body.innerHTML = renderMarkdown(content);
+  } else {
+    body.textContent = content;
+  }
 
   el.appendChild(header);
   el.appendChild(body);
