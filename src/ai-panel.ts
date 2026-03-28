@@ -26,6 +26,15 @@ export function createAIPanel(): HTMLElement {
       <span class="ai-label">AI Assistant</span>
       <div class="ai-header-actions">
         <span id="ai-status" class="ai-status"></span>
+        <button id="ai-fork-btn" class="ai-header-btn" title="Fork conversation">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <path d="M5 3v4a2 2 0 002 2h2a2 2 0 002-2V3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+            <circle cx="5" cy="2.5" r="1.5" stroke="currentColor" stroke-width="1"/>
+            <circle cx="11" cy="2.5" r="1.5" stroke="currentColor" stroke-width="1"/>
+            <circle cx="8" cy="13" r="1.5" stroke="currentColor" stroke-width="1"/>
+            <line x1="8" y1="9" x2="8" y2="11.5" stroke="currentColor" stroke-width="1.3"/>
+          </svg>
+        </button>
         <button id="ai-close" class="ai-header-btn" title="Close">&times;</button>
       </div>
     </div>
@@ -239,9 +248,7 @@ export function initAIPanel(
   });
 
   function showForkDialog(threadId: string, targetProvider: string, container: HTMLElement) {
-    // Remove existing dialog
     document.getElementById("fork-dialog")?.remove();
-
     const dialog = document.createElement("div");
     dialog.id = "fork-dialog";
     dialog.className = "ai-fork-dialog fade-in";
@@ -256,51 +263,11 @@ export function initAIPanel(
         <button class="fork-btn" id="fork-cancel">Cancel</button>
       </div>
     `;
-
     dialog.querySelector("#fork-confirm")?.addEventListener("click", async () => {
-      const forked = await forkThread(threadId, targetProvider);
       dialog.remove();
-      if (forked && threadCallbacks) {
-        // Calculate context stats
-        const msgCount = forked.messages.length;
-        const totalChars = forked.messages.reduce((sum, m) => sum + m.content.length, 0);
-        const approxTokens = Math.round(totalChars / 4);
-
-        // Switch provider
-        providerBtns.forEach((b) => b.classList.remove("active"));
-        providerBtns.forEach((b) => {
-          if (b.dataset.provider === targetProvider) b.classList.add("active");
-        });
-        currentProvider = targetProvider;
-        activeProviderName = currentProvider === "codex" ? "Codex" : "Claude";
-        switchProviderConfig(currentProvider);
-        checkProvider(statusEl, currentProvider);
-        updateAISettings(currentProvider, modelBtn.dataset.value || "", permBtn.dataset.value || "");
-
-        // Clear chat and show context summary
-        messagesContainer.innerHTML = "";
-        const banner = document.createElement("div");
-        banner.className = "ai-fork-banner fade-in";
-        banner.innerHTML = `
-          <div class="fork-banner-icon">&#8618;</div>
-          <div class="fork-banner-text">
-            <strong>Forked to ${activeProviderName}</strong>
-            <span>${msgCount} messages transferred &middot; ~${approxTokens.toLocaleString()} tokens of context</span>
-          </div>
-        `;
-        messagesContainer.appendChild(banner);
-
-        // Switch to the forked thread
-        window.dispatchEvent(new CustomEvent("zauri-switch-thread", {
-          detail: { threadId: forked.id, skipLoadMessages: true },
-        }));
-      }
+      await executeFork(threadId, targetProvider);
     });
-
-    dialog.querySelector("#fork-cancel")?.addEventListener("click", () => {
-      dialog.remove();
-    });
-
+    dialog.querySelector("#fork-cancel")?.addEventListener("click", () => dialog.remove());
     container.appendChild(dialog);
     container.scrollTop = container.scrollHeight;
   }
@@ -366,6 +333,87 @@ export function initAIPanel(
 
   // Event listeners
   closeBtn.addEventListener("click", () => panel.classList.add("hidden"));
+
+  // Fork button
+  const forkBtn = document.getElementById("ai-fork-btn")!;
+  forkBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const threadId = threadCallbacks?.getActiveThreadId();
+    if (!threadId) return;
+
+    document.querySelectorAll(".custom-dropdown").forEach((d) => d.remove());
+    const menu = document.createElement("div");
+    menu.className = "custom-dropdown";
+
+    const otherProvider = currentProvider === "claude" ? "codex" : "claude";
+    const otherName = otherProvider === "codex" ? "Codex" : "Claude";
+
+    const items = [
+      { label: `Fork (continue with ${activeProviderName})`, provider: currentProvider },
+      { label: `Fork to ${otherName}`, provider: otherProvider },
+    ];
+
+    for (const item of items) {
+      const el = document.createElement("div");
+      el.className = "custom-dropdown-item";
+      el.innerHTML = `<span class="dropdown-check"></span> ${item.label}`;
+      el.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        menu.remove();
+        await executeFork(threadId, item.provider);
+      });
+      menu.appendChild(el);
+    }
+
+    const rect = forkBtn.getBoundingClientRect();
+    menu.style.right = `${window.innerWidth - rect.right}px`;
+    menu.style.top = `${rect.bottom + 4}px`;
+    menu.style.left = "auto";
+    document.body.appendChild(menu);
+    const closeMenu = () => { menu.remove(); document.removeEventListener("click", closeMenu); };
+    setTimeout(() => document.addEventListener("click", closeMenu), 0);
+  });
+
+  async function executeFork(threadId: string, targetProvider: string) {
+    const forked = await forkThread(threadId, targetProvider);
+    if (!forked) return;
+
+    const msgCount = forked.messages.length;
+    const totalChars = forked.messages.reduce((sum, m) => sum + m.content.length, 0);
+    const approxTokens = Math.round(totalChars / 4);
+    const targetName = targetProvider === "codex" ? "Codex" : "Claude";
+    const isSameProvider = targetProvider === currentProvider;
+
+    // Switch provider if different
+    if (!isSameProvider) {
+      providerBtns.forEach((b) => b.classList.remove("active"));
+      providerBtns.forEach((b) => {
+        if (b.dataset.provider === targetProvider) b.classList.add("active");
+      });
+      currentProvider = targetProvider;
+      activeProviderName = targetName;
+      switchProviderConfig(currentProvider);
+      checkProvider(statusEl, currentProvider);
+      updateAISettings(currentProvider, modelBtn.dataset.value || "", permBtn.dataset.value || "");
+    }
+
+    // Clear chat and show fork banner
+    messagesContainer.innerHTML = "";
+    const banner = document.createElement("div");
+    banner.className = "ai-fork-banner fade-in";
+    banner.innerHTML = `
+      <div class="fork-banner-icon">&#8618;</div>
+      <div class="fork-banner-text">
+        <strong>Forked${isSameProvider ? "" : ` to ${targetName}`}</strong>
+        <span>${msgCount} messages &middot; ~${approxTokens.toLocaleString()} tokens of context</span>
+      </div>
+    `;
+    messagesContainer.appendChild(banner);
+
+    window.dispatchEvent(new CustomEvent("zauri-switch-thread", {
+      detail: { threadId: forked.id, skipLoadMessages: true },
+    }));
+  }
 
   sendBtn.addEventListener("click", () => sendMessage());
   stopBtn.addEventListener("click", async () => {
