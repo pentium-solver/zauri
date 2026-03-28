@@ -246,12 +246,12 @@ fn ai_chat(
                 vec![
                     "--print".to_string(),
                     "--output-format".to_string(),
-                    "text".to_string(),
+                    "stream-json".to_string(),
                 ],
             ),
         };
 
-        let use_stdin = provider != "codex"; // Codex takes prompt as arg
+        let use_stdin = provider != "codex";
 
         let result = Command::new(&cmd)
             .args(&args)
@@ -263,7 +263,6 @@ fn ai_chat(
 
         match result {
             Ok(mut child) => {
-                // Write prompt to stdin (Claude uses stdin, Codex uses args)
                 if use_stdin {
                     if let Some(mut stdin) = child.stdin.take() {
                         use std::io::Write;
@@ -272,17 +271,67 @@ fn ai_chat(
                     }
                 }
 
-                // Stream stdout line by line
+                // Stream stdout in small chunks for real-time token passthrough
                 if let Some(stdout) = child.stdout.take() {
-                    let reader = BufReader::new(stdout);
-                    for line in reader.lines() {
-                        if let Ok(line) = line {
-                            let _ = app_handle.emit("ai-response-chunk", &line);
+                    let mut reader = BufReader::new(stdout);
+                    let mut line_buf = String::new();
+                    loop {
+                        line_buf.clear();
+                        match reader.read_line(&mut line_buf) {
+                            Ok(0) => break, // EOF
+                            Ok(_) => {
+                                let trimmed = line_buf.trim();
+                                if trimmed.is_empty() {
+                                    continue;
+                                }
+                                // stream-json format: each line is a JSON object
+                                // Parse and extract text content for real-time display
+                                if let Ok(event) =
+                                    serde_json::from_str::<serde_json::Value>(trimmed)
+                                {
+                                    match event.get("type").and_then(|t| t.as_str()) {
+                                        Some("content_block_delta") => {
+                                            if let Some(delta) = event.get("delta") {
+                                                if let Some(text) =
+                                                    delta.get("text").and_then(|t| t.as_str())
+                                                {
+                                                    let _ = app_handle
+                                                        .emit("ai-response-chunk", text);
+                                                }
+                                            }
+                                        }
+                                        Some("message_start") | Some("content_block_start") => {
+                                            // Signal that streaming has started
+                                            let _ = app_handle
+                                                .emit("ai-response-start", "streaming");
+                                        }
+                                        Some("message_stop") => {
+                                            // Message complete
+                                        }
+                                        Some("result") => {
+                                            // Final result from claude --print stream-json
+                                            if let Some(result_text) =
+                                                event.get("result").and_then(|r| r.as_str())
+                                            {
+                                                let _ = app_handle
+                                                    .emit("ai-response-chunk", result_text);
+                                            }
+                                        }
+                                        _ => {
+                                            // For non-JSON lines or unknown events,
+                                            // pass through as raw text
+                                        }
+                                    }
+                                } else {
+                                    // Not JSON — raw text output (e.g. from codex)
+                                    let _ = app_handle.emit("ai-response-chunk", trimmed);
+                                }
+                            }
+                            Err(_) => break,
                         }
                     }
                 }
 
-                // Wait for process to finish
                 match child.wait() {
                     Ok(status) => {
                         let _ = app_handle.emit(
@@ -298,7 +347,7 @@ fn ai_chat(
             Err(e) => {
                 let _ = app_handle.emit(
                     "ai-response-done",
-                    &format!("Failed to start Claude CLI: {}", e),
+                    &format!("Failed to start {} CLI: {}", cmd, e),
                 );
             }
         }

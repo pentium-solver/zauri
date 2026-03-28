@@ -114,11 +114,20 @@ export function initAIPanel(
     input.style.height = Math.min(input.scrollHeight, 150) + "px";
   });
 
-  // Listen for streaming response chunks
+  // Listen for streaming start signal
+  listen<string>("ai-response-start", () => {
+    if (!isStreaming) {
+      isStreaming = true;
+      const msg = createMessageEl("assistant", "");
+      messagesContainer.appendChild(msg);
+      currentStreamContent = "";
+    }
+  });
+
+  // Listen for streaming response tokens — now arrives as individual tokens
   listen<string>("ai-response-chunk", (event) => {
-    const line = event.payload;
-    // Skip empty lines at the start of the response
-    if (!isStreaming && line.trim() === "") return;
+    const token = event.payload;
+    if (!token) return;
 
     if (!isStreaming) {
       isStreaming = true;
@@ -126,14 +135,12 @@ export function initAIPanel(
       messagesContainer.appendChild(msg);
       currentStreamContent = "";
     }
-    // Only add newline between lines, not before the first one
-    if (currentStreamContent.length > 0) {
-      currentStreamContent += "\n";
-    }
-    currentStreamContent += line;
+
+    // Append token directly — no newline insertion, tokens include their own whitespace
+    currentStreamContent += token;
     const lastMsg = messagesContainer.querySelector(".ai-msg:last-child .ai-msg-content");
     if (lastMsg) {
-      lastMsg.textContent = currentStreamContent.trimEnd();
+      lastMsg.textContent = currentStreamContent;
     }
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   });
@@ -143,7 +150,7 @@ export function initAIPanel(
     if (currentStreamContent) {
       messages.push({
         role: "assistant",
-        content: currentStreamContent,
+        content: currentStreamContent.trim(),
         timestamp: Date.now(),
       });
     }
@@ -151,6 +158,7 @@ export function initAIPanel(
     statusEl.className = `ai-status ${event.payload === "ok" ? "ready" : "error"}`;
     sendBtn.removeAttribute("disabled");
     input.removeAttribute("disabled");
+    input.focus();
     currentStreamContent = "";
   });
 
