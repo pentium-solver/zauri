@@ -552,6 +552,8 @@ document.addEventListener("keydown", (e) => {
 
 // ---- Event listeners ----
 document.getElementById("open-folder-btn")?.addEventListener("click", openFolder);
+// Wire initial welcome screen buttons (HTML version)
+document.getElementById("welcome-open-folder")?.addEventListener("click", openFolder);
 searchClose.addEventListener("click", () => searchPanel.classList.add("hidden"));
 
 searchInput.addEventListener("input", () => {
