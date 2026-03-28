@@ -164,26 +164,26 @@ export function initAIPanel(
 
   // Listen for response text
   listen<string>("ai-response-chunk", (event) => {
-    const text = event.payload?.trim();
-    if (!text) return;
+    const token = event.payload;
+    if (token === null || token === undefined || token === "") return;
 
     removeLoading();
 
     if (!isStreaming) {
       isStreaming = true;
       currentStreamContent = "";
+      // Create the message element
+      const msg = createMessageEl("assistant", "");
+      messagesContainer.appendChild(msg);
     }
 
-    // Create or update the assistant message
-    let msgEl = messagesContainer.querySelector(".ai-msg-assistant:last-child");
-    if (!msgEl || msgEl.querySelector(".ai-loading-dots")) {
-      const msg = createMessageEl("assistant", text);
-      messagesContainer.appendChild(msg);
-      currentStreamContent = text;
-    } else {
-      currentStreamContent += text;
-      const contentEl = msgEl.querySelector(".ai-msg-content");
-      if (contentEl) contentEl.textContent = currentStreamContent;
+    // Append token (preserve whitespace — don't trim!)
+    currentStreamContent += token;
+
+    // Update display with raw text during streaming (fast updates)
+    const contentEl = messagesContainer.querySelector(".ai-msg-assistant:last-child .ai-msg-content");
+    if (contentEl) {
+      contentEl.textContent = currentStreamContent;
     }
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   });

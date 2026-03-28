@@ -265,6 +265,7 @@ fn ai_chat(
                     "--print".to_string(),
                     "--output-format".to_string(),
                     "stream-json".to_string(),
+                    "--include-partial-messages".to_string(),
                 ],
             ),
         };
@@ -289,6 +290,7 @@ fn ai_chat(
                     }
                 }
 
+                let mut got_result = false;
                 if let Some(stdout) = child.stdout.take() {
                     let reader = BufReader::new(stdout);
                     for line in reader.lines().map_while(Result::ok) {
@@ -297,19 +299,34 @@ fn ai_chat(
                             continue;
                         }
 
-                        // Try to parse as JSON (stream-json format)
                         if let Ok(event) = serde_json::from_str::<serde_json::Value>(&trimmed) {
-                            // Only use the "result" event — it's the definitive response.
-                            // Skip "assistant" event (same text, would cause duplicates).
-                            if event.get("type").and_then(|t| t.as_str()) == Some("result") {
-                                if let Some(text) = event.get("result").and_then(|r| r.as_str())
-                                {
-                                    let trimmed_text = text.trim();
-                                    if !trimmed_text.is_empty() {
-                                        let _ = app_handle
-                                            .emit("ai-response-chunk", trimmed_text);
+                            let event_type = event.get("type").and_then(|t| t.as_str());
+
+                            match event_type {
+                                Some("stream_event") => {
+                                    // Real-time streaming token from --include-partial-messages
+                                    let inner_type = event
+                                        .get("event")
+                                        .and_then(|e| e.get("type"))
+                                        .and_then(|t| t.as_str());
+
+                                    if inner_type == Some("content_block_delta") {
+                                        if let Some(text) = event
+                                            .get("event")
+                                            .and_then(|e| e.get("delta"))
+                                            .and_then(|d| d.get("text"))
+                                            .and_then(|t| t.as_str())
+                                        {
+                                            let _ = app_handle.emit("ai-response-chunk", text);
+                                        }
                                     }
                                 }
+                                Some("result") => {
+                                    // Final result — emit completion
+                                    got_result = true;
+                                    let _ = app_handle.emit("ai-response-done", "ok");
+                                }
+                                _ => {} // system, assistant, rate_limit — skip
                             }
                         } else {
                             // Raw text (non-JSON) — from codex or fallback
@@ -323,10 +340,13 @@ fn ai_chat(
 
                 match child.wait() {
                     Ok(status) => {
-                        let _ = app_handle.emit(
-                            "ai-response-done",
-                            if status.success() { "ok" } else { "error" },
-                        );
+                        // Only emit done if not already emitted by "result" event
+                        if !got_result {
+                            let _ = app_handle.emit(
+                                "ai-response-done",
+                                if status.success() { "ok" } else { "error" },
+                            );
+                        }
                     }
                     Err(e) => {
                         let _ = app_handle.emit("ai-response-done", &format!("error: {}", e));
