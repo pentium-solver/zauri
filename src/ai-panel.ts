@@ -26,6 +26,17 @@ export function createAIPanel(): HTMLElement {
       <span class="ai-label">AI Assistant</span>
       <div class="ai-header-actions">
         <span id="ai-status" class="ai-status"></span>
+        <button id="ai-search-toggle" class="ai-header-btn" title="Search messages (Cmd+F)">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <circle cx="7" cy="7" r="3.5" stroke="currentColor" stroke-width="1.2"/>
+            <line x1="9.5" y1="9.5" x2="13" y2="13" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <button id="ai-compact-btn" class="ai-header-btn" title="Compact conversation">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <path d="M3 4h10M3 8h6M3 12h8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+          </svg>
+        </button>
         <button id="ai-fork-btn" class="ai-header-btn" title="Fork conversation">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
             <path d="M5 3v4a2 2 0 002 2h2a2 2 0 002-2V3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
@@ -37,6 +48,11 @@ export function createAIPanel(): HTMLElement {
         </button>
         <button id="ai-close" class="ai-header-btn" title="Close">&times;</button>
       </div>
+    </div>
+    <div id="ai-search-bar" class="hidden">
+      <input type="text" id="ai-search-input" placeholder="Search messages..." />
+      <span id="ai-search-count"></span>
+      <button id="ai-search-close" class="ai-header-btn">&times;</button>
     </div>
     <div id="ai-messages"></div>
     <div id="ai-input-area">
@@ -73,6 +89,13 @@ export function createAIPanel(): HTMLElement {
         <button class="ai-toolbar-dropdown-btn" id="ai-model-btn" data-value="claude-opus-4-6[1m]">Opus 4.6 [1M] <span class="dropdown-caret">&#9662;</span></button>
         <div class="ai-toolbar-sep"></div>
         <button class="ai-toolbar-dropdown-btn" id="ai-permission-btn" data-value="default">Default <span class="dropdown-caret">&#9662;</span></button>
+      </div>
+      <div id="ai-usage-bar">
+        <span id="ai-usage-tokens">0 tokens</span>
+        <span id="ai-usage-cost"></span>
+        <div id="ai-rate-limit-bar" class="hidden">
+          <div id="ai-rate-fill"></div>
+        </div>
       </div>
     </div>
   `;
@@ -443,6 +466,161 @@ export function initAIPanel(
     input.style.height = Math.min(input.scrollHeight, 150) + "px";
   });
 
+  // ---- Token usage tracking ----
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalCost = 0;
+  const usageTokensEl = document.getElementById("ai-usage-tokens")!;
+  const usageCostEl = document.getElementById("ai-usage-cost")!;
+  const rateLimitBar = document.getElementById("ai-rate-limit-bar")!;
+  const rateFill = document.getElementById("ai-rate-fill")!;
+
+  function updateUsageDisplay() {
+    const total = totalInputTokens + totalOutputTokens;
+    usageTokensEl.textContent = `${total.toLocaleString()} tokens`;
+    if (totalCost > 0) {
+      usageCostEl.textContent = `$${totalCost.toFixed(4)}`;
+    }
+  }
+
+  listen<string>("ai-usage", (event) => {
+    try {
+      const data = JSON.parse(event.payload);
+      totalInputTokens += data.input_tokens || 0;
+      totalOutputTokens += data.output_tokens || 0;
+      totalCost += data.cost_usd || 0;
+      updateUsageDisplay();
+    } catch { /* ignore */ }
+  });
+
+  listen<string>("ai-rate-limit", (event) => {
+    try {
+      const data = JSON.parse(event.payload);
+      if (data.resets_at > 0) {
+        rateLimitBar.classList.remove("hidden");
+        const now = Date.now() / 1000;
+        const total = data.resets_at - now;
+        const updateTimer = () => {
+          const remaining = data.resets_at - Date.now() / 1000;
+          if (remaining <= 0) {
+            rateLimitBar.classList.add("hidden");
+            return;
+          }
+          const pct = Math.max(0, Math.min(100, (remaining / total) * 100));
+          rateFill.style.width = `${pct}%`;
+          rateFill.title = `Rate limit resets in ${Math.ceil(remaining / 60)}m`;
+          requestAnimationFrame(updateTimer);
+        };
+        updateTimer();
+      }
+    } catch { /* ignore */ }
+  });
+
+  // ---- Message search ----
+  const searchBar = document.getElementById("ai-search-bar")!;
+  const searchInput2 = document.getElementById("ai-search-input") as HTMLInputElement;
+  const searchCount = document.getElementById("ai-search-count")!;
+
+  document.getElementById("ai-search-toggle")!.addEventListener("click", () => {
+    searchBar.classList.toggle("hidden");
+    if (!searchBar.classList.contains("hidden")) {
+      searchInput2.focus();
+    } else {
+      // Clear highlights
+      messagesContainer.querySelectorAll(".search-highlight").forEach((el) => {
+        const parent = el.parentNode!;
+        parent.replaceChild(document.createTextNode(el.textContent || ""), el);
+        parent.normalize();
+      });
+    }
+  });
+
+  document.getElementById("ai-search-close")!.addEventListener("click", () => {
+    searchBar.classList.add("hidden");
+    messagesContainer.querySelectorAll(".search-highlight").forEach((el) => {
+      const parent = el.parentNode!;
+      parent.replaceChild(document.createTextNode(el.textContent || ""), el);
+      parent.normalize();
+    });
+  });
+
+  searchInput2.addEventListener("input", () => {
+    const query = searchInput2.value.toLowerCase();
+    // Clear previous highlights
+    messagesContainer.querySelectorAll(".search-highlight").forEach((el) => {
+      const parent = el.parentNode!;
+      parent.replaceChild(document.createTextNode(el.textContent || ""), el);
+      parent.normalize();
+    });
+    if (!query) {
+      searchCount.textContent = "";
+      return;
+    }
+    let count = 0;
+    messagesContainer.querySelectorAll(".ai-msg-content").forEach((el) => {
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      const textNodes: Text[] = [];
+      let node;
+      while ((node = walker.nextNode())) textNodes.push(node as Text);
+      for (const tn of textNodes) {
+        const text = tn.textContent || "";
+        const idx = text.toLowerCase().indexOf(query);
+        if (idx >= 0) {
+          const before = text.slice(0, idx);
+          const match = text.slice(idx, idx + query.length);
+          const after = text.slice(idx + query.length);
+          const span = document.createElement("mark");
+          span.className = "search-highlight";
+          span.textContent = match;
+          const frag = document.createDocumentFragment();
+          if (before) frag.appendChild(document.createTextNode(before));
+          frag.appendChild(span);
+          if (after) frag.appendChild(document.createTextNode(after));
+          tn.parentNode!.replaceChild(frag, tn);
+          count++;
+        }
+      }
+    });
+    searchCount.textContent = count > 0 ? `${count} found` : "No results";
+  });
+
+  // ---- Compact button ----
+  document.getElementById("ai-compact-btn")!.addEventListener("click", () => {
+    if (!messages.length) return;
+    const summary = messages.map((m) => `${m.role}: ${m.content.slice(0, 100)}`).join("\n");
+    const compactMsg = `Summarize this conversation concisely, then continue:\n\n${summary}`;
+    // Clear messages and add as system context
+    messagesContainer.innerHTML = "";
+    const banner = document.createElement("div");
+    banner.className = "ai-fork-banner fade-in";
+    banner.innerHTML = `
+      <div class="fork-banner-icon">&#128220;</div>
+      <div class="fork-banner-text">
+        <strong>Compacted</strong>
+        <span>${messages.length} messages condensed into context</span>
+      </div>
+    `;
+    messagesContainer.appendChild(banner);
+    messages.length = 0;
+    // Send compact request
+    const root = getRootPath() || ".";
+    invoke("ai_chat", {
+      prompt: compactMsg,
+      workingDir: root,
+      contextFiles: [],
+      provider: currentProvider,
+      sessionId: threadCallbacks?.getSessionId() || null,
+      model: (panel.querySelector("#ai-model-btn") as HTMLElement)?.dataset.value || null,
+      permissionMode: (panel.querySelector("#ai-permission-btn") as HTMLElement)?.dataset.value || null,
+    }).catch(() => {});
+    isStreaming = false;
+    showLoading();
+    statusEl.textContent = "Compacting...";
+    statusEl.className = "ai-status thinking";
+    sendBtn.classList.add("hidden");
+    stopBtn.classList.remove("hidden");
+  });
+
   // --- Loading dots element ---
   let loadingEl: HTMLElement | null = null;
 
@@ -732,9 +910,21 @@ function createMessageEl(role: string, content: string): HTMLElement {
   const el = document.createElement("div");
   el.className = `ai-msg ai-msg-${role} fade-in`;
 
+  // Header row with name and timestamp
+  const headerRow = document.createElement("div");
+  headerRow.className = "ai-msg-header-row";
+
   const header = document.createElement("div");
   header.className = "ai-msg-header";
   header.textContent = role === "user" ? "You" : role === "assistant" ? activeProviderName : "System";
+
+  const timestamp = document.createElement("span");
+  timestamp.className = "ai-msg-time";
+  const now = new Date();
+  timestamp.textContent = `${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}`;
+
+  headerRow.appendChild(header);
+  headerRow.appendChild(timestamp);
 
   const body = document.createElement("div");
   body.className = "ai-msg-content";
@@ -745,8 +935,43 @@ function createMessageEl(role: string, content: string): HTMLElement {
     body.textContent = content;
   }
 
-  el.appendChild(header);
+  // Hover actions
+  const actions = document.createElement("div");
+  actions.className = "ai-msg-actions";
+  actions.innerHTML = `
+    <button class="msg-action-btn" title="Copy" data-action="copy">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="5" y="5" width="8" height="8" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M3 11V3h8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+    </button>
+    ${role === "user" ? '<button class="msg-action-btn" title="Retry" data-action="retry"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 8a6 6 0 0110.5-4M14 8a6 6 0 01-10.5 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M12 1v3.5h-3.5M4 15v-3.5h3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>' : ""}
+    <button class="msg-action-btn" title="Delete" data-action="delete">
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+    </button>
+  `;
+
+  actions.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest("[data-action]") as HTMLElement;
+    if (!btn) return;
+    const action = btn.dataset.action;
+    if (action === "copy") {
+      navigator.clipboard.writeText(content || body.textContent || "");
+      btn.title = "Copied!";
+      setTimeout(() => (btn.title = "Copy"), 1500);
+    } else if (action === "delete") {
+      el.remove();
+    } else if (action === "retry") {
+      // Re-send this user message
+      const inputEl = document.getElementById("ai-input") as HTMLTextAreaElement;
+      if (inputEl) {
+        inputEl.value = content;
+        inputEl.dispatchEvent(new Event("input"));
+        inputEl.focus();
+      }
+    }
+  });
+
+  el.appendChild(headerRow);
   el.appendChild(body);
+  el.appendChild(actions);
   return el;
 }
 

@@ -612,8 +612,26 @@ fn ai_chat(
                                     if let Some(sid) = event.get("session_id").and_then(|s| s.as_str()) {
                                         let _ = app_handle.emit("ai-session-id", sid);
                                     }
+                                    // Emit usage stats
+                                    let usage_data = serde_json::json!({
+                                        "input_tokens": event.get("usage").and_then(|u| u.get("input_tokens")).and_then(|t| t.as_u64()).unwrap_or(0),
+                                        "output_tokens": event.get("usage").and_then(|u| u.get("output_tokens")).and_then(|t| t.as_u64()).unwrap_or(0),
+                                        "cache_read": event.get("usage").and_then(|u| u.get("cache_read_input_tokens")).and_then(|t| t.as_u64()).unwrap_or(0),
+                                        "cost_usd": event.get("total_cost_usd").and_then(|c| c.as_f64()).unwrap_or(0.0),
+                                        "duration_ms": event.get("duration_ms").and_then(|d| d.as_u64()).unwrap_or(0),
+                                    });
+                                    let _ = app_handle.emit("ai-usage", usage_data.to_string());
                                     got_result = true;
                                     let _ = app_handle.emit("ai-response-done", "ok");
+                                }
+                                Some("rate_limit_event") => {
+                                    if let Some(info) = event.get("rate_limit_info") {
+                                        let _ = app_handle.emit("ai-rate-limit", serde_json::json!({
+                                            "status": info.get("status").and_then(|s| s.as_str()).unwrap_or("unknown"),
+                                            "resets_at": info.get("resetsAt").and_then(|r| r.as_u64()).unwrap_or(0),
+                                            "type": info.get("rateLimitType").and_then(|t| t.as_str()).unwrap_or(""),
+                                        }).to_string());
+                                    }
                                 }
 
                                 // ---- Codex events (--json JSONL) ----
