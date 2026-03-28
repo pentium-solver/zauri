@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { parseEditsFromResponse, type ProposedEdit } from "./ai-edits";
 
 interface ChatMessage {
   role: "user" | "assistant" | "system";
@@ -58,10 +59,18 @@ export function createAIPanel(): HTMLElement {
   return panel;
 }
 
+interface EditCallbacks {
+  getFileContent: (path: string) => string | null;
+  showProposedEdit: (edit: ProposedEdit) => void;
+  acceptAllEdits: () => Promise<void>;
+  rejectAllEdits: () => void;
+}
+
 export function initAIPanel(
   getActiveFilePath: () => string | null,
   getOpenFilePaths: () => string[],
   getRootPath: () => string | null,
+  editCallbacks?: EditCallbacks,
 ) {
   const panel = document.getElementById("ai-panel")!;
   const messagesContainer = document.getElementById("ai-messages")!;
@@ -182,19 +191,81 @@ export function initAIPanel(
     removeLoading();
     isStreaming = false;
 
-    if (currentStreamContent) {
+    const responseText = currentStreamContent.trim();
+    if (responseText) {
       messages.push({
         role: "assistant",
-        content: currentStreamContent.trim(),
+        content: responseText,
         timestamp: Date.now(),
       });
+
+      // Parse for file edits
+      const root = getRootPath();
+      if (root && editCallbacks) {
+        const edits = parseEditsFromResponse(
+          responseText,
+          root,
+          editCallbacks.getFileContent,
+        );
+
+        if (edits.length > 0) {
+          // Show proposed changes panel below the message
+          const changesEl = document.createElement("div");
+          changesEl.className = "ai-proposed-changes fade-in";
+
+          let html = `<div class="ai-changes-header">
+            <span>Proposed Changes (${edits.length} file${edits.length > 1 ? "s" : ""})</span>
+            <div class="ai-changes-actions">
+              <button class="ai-changes-btn accept-all">Accept All</button>
+              <button class="ai-changes-btn reject-all">Reject All</button>
+            </div>
+          </div><div class="ai-changes-list">`;
+
+          for (const edit of edits) {
+            const name = edit.filePath.split("/").pop() || edit.filePath;
+            html += `<div class="ai-change-item" data-path="${escapeHtml(edit.filePath)}">
+              <span class="ai-change-name">${escapeHtml(name)}</span>
+              <span class="ai-change-stats">
+                <span class="stat-add">+${edit.additions}</span>
+                <span class="stat-del">-${edit.deletions}</span>
+              </span>
+            </div>`;
+          }
+          html += `</div>`;
+          changesEl.innerHTML = html;
+
+          // Wire events
+          changesEl.querySelector(".accept-all")?.addEventListener("click", () => {
+            editCallbacks!.acceptAllEdits();
+            changesEl.remove();
+          });
+          changesEl.querySelector(".reject-all")?.addEventListener("click", () => {
+            editCallbacks!.rejectAllEdits();
+            changesEl.remove();
+          });
+          changesEl.querySelectorAll(".ai-change-item").forEach((item) => {
+            item.addEventListener("click", () => {
+              const path = (item as HTMLElement).dataset.path;
+              const edit = edits.find((e) => e.filePath === path);
+              if (edit) editCallbacks!.showProposedEdit(edit);
+            });
+          });
+
+          messagesContainer.appendChild(changesEl);
+
+          // Also show first edit in editor
+          editCallbacks.showProposedEdit(edits[0]);
+        }
+      }
     }
+
     statusEl.textContent = event.payload === "ok" ? "Ready" : "Error";
     statusEl.className = `ai-status ${event.payload === "ok" ? "ready" : "error"}`;
     sendBtn.removeAttribute("disabled");
     input.removeAttribute("disabled");
     input.focus();
     currentStreamContent = "";
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
   });
 
   function sendMessage() {

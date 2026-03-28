@@ -9,6 +9,16 @@ import { getFileIcon, getFolderIcon, chevronRight, chevronDown } from "./icons";
 import { getLanguageExtension } from "./languages";
 import { createAIPanel, initAIPanel, toggleAIPanel } from "./ai-panel";
 import { createTerminalPanel, initTerminal, toggleTerminal } from "./terminal";
+import { diffExtension, activateDiff, clearDiff } from "./diff-decorations";
+import {
+  type ProposedEdit,
+  pendingEdits,
+  addPendingEdit,
+  removePendingEdit,
+  pushSnapshot,
+  canRevert,
+  revertLastSnapshot,
+} from "./ai-edits";
 
 // ---- Types ----
 interface DirEntry {
@@ -84,6 +94,7 @@ function createEditorState(content: string, filename: string): EditorState {
       zauriTheme,
       keymap.of(searchKeymap),
       getLanguageExtension(filename),
+      diffExtension,
       EditorView.updateListener.of((update) => {
         if (update.docChanged && activeTabPath) {
           const tab = tabs.get(activeTabPath);
@@ -495,6 +506,171 @@ const mainEl = document.getElementById("main")!;
 mainEl.insertBefore(terminalPanelEl, searchPanel);
 initTerminal(() => rootPath);
 
+// ---- AI Code Edit Integration ----
+
+/** Get file content from open tab or null */
+function getFileContent(path: string): string | null {
+  const tab = tabs.get(path);
+  if (tab && tab.editorState) {
+    return tab.editorState.doc.toString();
+  }
+  return tab?.content || null;
+}
+
+/** Show proposed edit diff in the editor */
+function showProposedEdit(edit: ProposedEdit) {
+  addPendingEdit(edit);
+
+  // Open the file if not already open, then switch to it
+  const tab = tabs.get(edit.filePath);
+  const name = edit.filePath.split("/").pop() || edit.filePath;
+
+  if (tab) {
+    // Replace editor content with proposed content and show diff
+    const state = createEditorState(edit.newContent, name);
+    tab.editorState = state;
+    if (activeTabPath === edit.filePath) {
+      setEditorContent(state);
+      if (editorView) {
+        activateDiff(editorView, edit.originalContent, edit.newContent, () => acceptEdit(edit.filePath), () => rejectEdit(edit.filePath));
+      }
+    } else {
+      switchTab(edit.filePath);
+      requestAnimationFrame(() => {
+        if (editorView) {
+          activateDiff(editorView, edit.originalContent, edit.newContent, () => acceptEdit(edit.filePath), () => rejectEdit(edit.filePath));
+        }
+      });
+    }
+  } else {
+    // File not open — open it with proposed content
+    const state = createEditorState(edit.newContent, name);
+    tabs.set(edit.filePath, {
+      path: edit.filePath,
+      name,
+      content: edit.originalContent,
+      modified: true,
+      editorState: state,
+    });
+    activeTabPath = edit.filePath;
+    setEditorContent(state);
+    renderTabs();
+    requestAnimationFrame(() => {
+      if (editorView) {
+        activateDiff(editorView, edit.originalContent, edit.newContent, () => acceptEdit(edit.filePath), () => rejectEdit(edit.filePath));
+      }
+    });
+  }
+  renderTabs();
+  updateRevertUI();
+}
+
+/** Accept an AI edit — save to disk */
+async function acceptEdit(filePath: string) {
+  const edit = pendingEdits.get(filePath);
+  if (!edit) return;
+
+  // Snapshot before accepting
+  const snapshot = new Map<string, string>();
+  snapshot.set(filePath, edit.originalContent);
+  pushSnapshot(`AI edit: ${filePath.split("/").pop()}`, snapshot);
+
+  // Write to disk
+  try {
+    await invoke("write_file", { path: filePath, content: edit.newContent });
+  } catch (err) {
+    console.error("Failed to save:", err);
+  }
+
+  // Update tab state
+  const tab = tabs.get(filePath);
+  if (tab) {
+    tab.content = edit.newContent;
+    tab.modified = false;
+  }
+
+  // Clear diff decorations
+  removePendingEdit(filePath);
+  if (editorView && activeTabPath === filePath) {
+    clearDiff(editorView);
+  }
+
+  renderTabs();
+  updateRevertUI();
+  statusPerf.textContent = "Changes accepted";
+}
+
+/** Reject an AI edit — restore original */
+function rejectEdit(filePath: string) {
+  const edit = pendingEdits.get(filePath);
+  if (!edit) return;
+
+  // Restore original content in editor
+  const tab = tabs.get(filePath);
+  const name = filePath.split("/").pop() || filePath;
+  if (tab) {
+    const state = createEditorState(edit.originalContent, name);
+    tab.editorState = state;
+    tab.content = edit.originalContent;
+    tab.modified = false;
+    if (activeTabPath === filePath) {
+      setEditorContent(state);
+    }
+  }
+
+  removePendingEdit(filePath);
+  renderTabs();
+  updateRevertUI();
+  statusPerf.textContent = "Changes rejected";
+}
+
+/** Accept all pending edits */
+async function acceptAllEdits() {
+  const paths = Array.from(pendingEdits.keys());
+  for (const path of paths) {
+    await acceptEdit(path);
+  }
+}
+
+/** Reject all pending edits */
+function rejectAllEdits() {
+  const paths = Array.from(pendingEdits.keys());
+  for (const path of paths) {
+    rejectEdit(path);
+  }
+}
+
+/** Revert last AI edit from history */
+async function revertLast() {
+  const snapshot = await revertLastSnapshot(async (path, content) => {
+    await invoke("write_file", { path, content });
+    const tab = tabs.get(path);
+    const name = path.split("/").pop() || path;
+    if (tab) {
+      const state = createEditorState(content, name);
+      tab.editorState = state;
+      tab.content = content;
+      tab.modified = false;
+      if (activeTabPath === path) {
+        setEditorContent(state);
+      }
+    }
+  });
+  if (snapshot) {
+    statusPerf.textContent = `Reverted: ${snapshot.description}`;
+  }
+  renderTabs();
+  updateRevertUI();
+}
+
+/** Update revert button visibility in status bar */
+function updateRevertUI() {
+  const revertBtn = document.getElementById("status-revert");
+  if (revertBtn) {
+    revertBtn.style.display = canRevert() ? "inline" : "none";
+  }
+}
+
 // ---- AI Panel setup ----
 const aiPanelEl = createAIPanel();
 document.getElementById("app")!.appendChild(aiPanelEl);
@@ -502,6 +678,7 @@ initAIPanel(
   () => activeTabPath,
   () => Array.from(tabs.keys()),
   () => rootPath,
+  { getFileContent, showProposedEdit, acceptAllEdits, rejectAllEdits },
 );
 
 // Wire up sidebar buttons
@@ -553,6 +730,9 @@ function setupResize(
 const sidebar = document.getElementById("sidebar")!;
 setupResize(document.getElementById("sidebar-resize"), sidebar, "x");
 setupResize(document.getElementById("terminal-resize"), terminalPanelEl, "y", true);
+
+// Revert button
+document.getElementById("status-revert")?.addEventListener("click", revertLast);
 
 // ---- Startup ----
 window.addEventListener("DOMContentLoaded", () => {

@@ -229,6 +229,18 @@ fn ai_chat(
 
     full_prompt.push_str(&prompt);
 
+    // Append system instructions for structured code output
+    full_prompt.push_str(concat!(
+        "\n\nIMPORTANT: When suggesting code changes, output the COMPLETE file content ",
+        "inside a fenced code block with `filepath:` followed by the absolute file path ",
+        "as the info string. Example:\n",
+        "```filepath:/absolute/path/to/file.ts\n",
+        "// complete file content here\n",
+        "```\n",
+        "Always use the absolute path. Output the FULL file, not just the changed parts. ",
+        "You may include multiple filepath blocks for multiple files."
+    ));
+
     // Spawn AI CLI in a thread to avoid blocking
     let app_handle = app.clone();
     std::thread::spawn(move || {
