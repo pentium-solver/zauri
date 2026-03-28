@@ -475,14 +475,26 @@ fn ai_chat(
         // It does NOT stream token-by-token. The response arrives as complete text.
 
         let (cmd, args): (String, Vec<String>) = match provider.as_str() {
-            "codex" => (
-                "codex".to_string(),
-                vec![
+            "codex" => {
+                let mut codex_args = vec![
+                    "exec".to_string(),
                     "--full-auto".to_string(),
-                    "--quiet".to_string(),
-                    full_prompt.clone(),
-                ],
-            ),
+                    "--json".to_string(),
+                ];
+                if let Some(ref m) = model {
+                    codex_args.push("-m".to_string());
+                    codex_args.push(m.clone());
+                }
+                if let Some(ref pm) = permission_mode {
+                    codex_args.push("-a".to_string());
+                    codex_args.push(pm.clone());
+                }
+                codex_args.push(full_prompt.clone());
+                (
+                    "codex".to_string(),
+                    codex_args,
+                )
+            },
             _ => {
                 let mut claude_args = vec![
                     "--print".to_string(),
@@ -514,6 +526,10 @@ fn ai_chat(
 
         let use_stdin = provider != "codex";
 
+        // Log the command being run
+        eprintln!("[ai] Running: {} {}", cmd, args.join(" "));
+        eprintln!("[ai] Provider: {}, CWD: {}", provider, working_dir);
+
         let result = Command::new(&cmd)
             .args(&args)
             .stdin(if use_stdin { Stdio::piped() } else { Stdio::null() })
@@ -532,6 +548,22 @@ fn ai_chat(
                     }
                 }
 
+                // Stream stderr in background for logging
+                if let Some(stderr) = child.stderr.take() {
+                    let stderr_app = app_handle.clone();
+                    std::thread::spawn(move || {
+                        let reader = BufReader::new(stderr);
+                        for line in reader.lines().map_while(Result::ok) {
+                            let trimmed = line.trim().to_string();
+                            if !trimmed.is_empty() {
+                                eprintln!("[ai:stderr] {}", trimmed);
+                                // Also emit to frontend for visibility
+                                let _ = stderr_app.emit("ai-log", &trimmed);
+                            }
+                        }
+                    });
+                }
+
                 let mut got_result = false;
                 if let Some(stdout) = child.stdout.take() {
                     let reader = BufReader::new(stdout);
@@ -545,8 +577,8 @@ fn ai_chat(
                             let event_type = event.get("type").and_then(|t| t.as_str());
 
                             match event_type {
+                                // ---- Claude events ----
                                 Some("stream_event") => {
-                                    // Real-time streaming token from --include-partial-messages
                                     let inner_type = event
                                         .get("event")
                                         .and_then(|e| e.get("type"))
@@ -564,14 +596,56 @@ fn ai_chat(
                                     }
                                 }
                                 Some("result") => {
-                                    // Emit session_id for conversation continuity
                                     if let Some(sid) = event.get("session_id").and_then(|s| s.as_str()) {
                                         let _ = app_handle.emit("ai-session-id", sid);
                                     }
                                     got_result = true;
                                     let _ = app_handle.emit("ai-response-done", "ok");
                                 }
-                                _ => {} // system, assistant, rate_limit — skip
+
+                                // ---- Codex events (--json JSONL) ----
+                                Some("item.completed") => {
+                                    // Codex final message
+                                    if let Some(text) = event
+                                        .get("item")
+                                        .and_then(|i| i.get("text"))
+                                        .and_then(|t| t.as_str())
+                                    {
+                                        let _ = app_handle.emit("ai-response-chunk", text);
+                                    }
+                                }
+                                Some("item.content_delta") => {
+                                    // Codex streaming delta
+                                    if let Some(text) = event
+                                        .get("delta")
+                                        .and_then(|d| d.get("text"))
+                                        .or_else(|| event.get("text"))
+                                        .and_then(|t| t.as_str())
+                                    {
+                                        let _ = app_handle.emit("ai-response-chunk", text);
+                                    }
+                                }
+                                Some("session.completed") | Some("agent.completed") => {
+                                    got_result = true;
+                                    let _ = app_handle.emit("ai-response-done", "ok");
+                                }
+                                Some("error") => {
+                                    let msg = event.get("message")
+                                        .or_else(|| event.get("error"))
+                                        .and_then(|m| m.as_str())
+                                        .unwrap_or("Unknown error");
+                                    eprintln!("[ai:error] {}", msg);
+                                    let _ = app_handle.emit("ai-response-chunk", &format!("Error: {}", msg));
+                                    got_result = true;
+                                    let _ = app_handle.emit("ai-response-done", "error");
+                                }
+
+                                _ => {
+                                    // Log unhandled event types for debugging
+                                    if let Some(t) = event_type {
+                                        eprintln!("[ai:event] unhandled type: {}", t);
+                                    }
+                                }
                             }
                         } else {
                             // Raw text (non-JSON) — from codex or fallback

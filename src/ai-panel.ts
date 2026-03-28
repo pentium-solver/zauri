@@ -304,6 +304,18 @@ export function initAIPanel(
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   });
 
+  // Log AI debug messages
+  listen<string>("ai-log", (event) => {
+    console.log("[ai:log]", event.payload);
+    // Show errors inline
+    if (event.payload?.toLowerCase().includes("error")) {
+      removeLoading();
+      const errEl = createMessageEl("system", event.payload);
+      messagesContainer.appendChild(errEl);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+  });
+
   // Capture session ID for conversation continuity
   listen<string>("ai-session-id", (event) => {
     if (event.payload && threadCallbacks) {
