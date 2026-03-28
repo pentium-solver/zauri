@@ -478,16 +478,16 @@ fn ai_chat(
             "codex" => {
                 let mut codex_args = vec![
                     "exec".to_string(),
-                    "--full-auto".to_string(),
                     "--json".to_string(),
                 ];
+                // Sandbox/approval mode
+                match permission_mode.as_deref() {
+                    Some("never") => codex_args.push("--dangerously-bypass-approvals-and-sandbox".to_string()),
+                    _ => codex_args.push("--full-auto".to_string()),
+                }
                 if let Some(ref m) = model {
                     codex_args.push("-m".to_string());
                     codex_args.push(m.clone());
-                }
-                if let Some(ref pm) = permission_mode {
-                    codex_args.push("-a".to_string());
-                    codex_args.push(pm.clone());
                 }
                 codex_args.push(full_prompt.clone());
                 (

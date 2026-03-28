@@ -131,12 +131,11 @@ export function initAIPanel(
       defaultModel: "gpt-5.4",
       defaultModelLabel: "GPT-5.4",
       permissions: [
-        { value: "untrusted", label: "Untrusted" },
-        { value: "on-request", label: "On Request" },
-        { value: "never", label: "Full Auto" },
+        { value: "full-auto", label: "Full Auto" },
+        { value: "never", label: "Bypass Sandbox" },
       ],
-      defaultPerm: "on-request",
-      defaultPermLabel: "On Request",
+      defaultPerm: "full-auto",
+      defaultPermLabel: "Full Auto",
     },
   };
 
