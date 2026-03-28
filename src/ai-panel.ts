@@ -319,7 +319,7 @@ export function initAIPanel(
   function showLoading() {
     loadingEl = document.createElement("div");
     loadingEl.className = "ai-msg ai-msg-assistant ai-loading fade-in";
-    loadingEl.innerHTML = `<div class="ai-msg-header">Claude</div><div class="ai-loading-dots"><span></span><span></span><span></span></div>`;
+    loadingEl.innerHTML = `<div class="ai-msg-header">${activeProviderName}</div><div class="ai-loading-dots"><span></span><span></span><span></span></div>`;
     messagesContainer.appendChild(loadingEl);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
