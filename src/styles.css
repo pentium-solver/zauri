@@ -670,46 +670,27 @@ body {
   color: var(--text-muted);
 }
 
-#terminal-output {
+#terminal-xterm {
   flex: 1;
+  overflow: hidden;
+  padding: 4px;
+}
+
+#terminal-xterm .xterm {
+  height: 100%;
+}
+
+#terminal-xterm .xterm-viewport {
   overflow-y: auto;
-  padding: 8px 12px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.5;
 }
 
-.terminal-text {
-  white-space: pre-wrap;
-  word-break: break-all;
-  color: var(--text-primary);
+#terminal-xterm .xterm-viewport::-webkit-scrollbar {
+  width: 5px;
 }
 
-.terminal-text.stderr {
-  color: var(--warning);
-}
-
-#terminal-input-line {
-  display: flex;
-  align-items: center;
-  padding: 4px 12px;
-  border-top: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-#terminal-input {
-  flex: 1;
-  background: none;
-  border: none;
-  color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  outline: none;
-  caret-color: var(--accent-light);
-}
-
-#terminal-input:disabled {
-  opacity: 0.4;
+#terminal-xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
 }
 
 /* ═══════════════════════ AI Panel ═══════════════════════ */

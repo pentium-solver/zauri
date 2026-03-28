@@ -1,8 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { Terminal } from "xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import "xterm/css/xterm.css";
 
 let sessionId: string | null = null;
 let isSpawned = false;
+let term: Terminal | null = null;
+let fitAddon: FitAddon | null = null;
 
 export function createTerminalPanel(): HTMLElement {
   const panel = document.createElement("div");
@@ -23,47 +29,77 @@ export function createTerminalPanel(): HTMLElement {
         <button id="terminal-close" class="terminal-action-btn" title="Close">&times;</button>
       </div>
     </div>
-    <div id="terminal-output"></div>
-    <div id="terminal-input-line">
-      <input id="terminal-input" type="text" spellcheck="false" autocomplete="off" placeholder="Type a command..." />
-    </div>
+    <div id="terminal-xterm"></div>
   `;
   return panel;
 }
 
 export function initTerminal(getRootPath: () => string | null) {
-  const output = document.getElementById("terminal-output")!;
-  const input = document.getElementById("terminal-input") as HTMLInputElement;
+  const xtermContainer = document.getElementById("terminal-xterm")!;
   const closeBtn = document.getElementById("terminal-close")!;
   const clearBtn = document.getElementById("terminal-clear")!;
 
-  let commandHistory: string[] = [];
-  let historyIndex = -1;
+  // Create xterm.js instance with theme matching our editor
+  term = new Terminal({
+    cursorBlink: true,
+    cursorStyle: "bar",
+    fontSize: 13,
+    fontFamily: '"SF Mono", "Cascadia Code", "JetBrains Mono", "Fira Code", ui-monospace, monospace',
+    lineHeight: 1.4,
+    theme: {
+      background: "#0c0c0e",
+      foreground: "#f5f5f5",
+      cursor: "#c084fc",
+      cursorAccent: "#050505",
+      selectionBackground: "rgba(168, 85, 247, 0.3)",
+      selectionForeground: "#f5f5f5",
+      black: "#1e1e22",
+      red: "#ef4444",
+      green: "#22c55e",
+      yellow: "#eab308",
+      blue: "#3b82f6",
+      magenta: "#a855f7",
+      cyan: "#06b6d4",
+      white: "#f5f5f5",
+      brightBlack: "#55555e",
+      brightRed: "#f87171",
+      brightGreen: "#4ade80",
+      brightYellow: "#fde047",
+      brightBlue: "#60a5fa",
+      brightMagenta: "#c084fc",
+      brightCyan: "#22d3ee",
+      brightWhite: "#ffffff",
+    },
+  });
+
+  fitAddon = new FitAddon();
+  term.loadAddon(fitAddon);
+  term.loadAddon(new WebLinksAddon());
+
+  term.open(xtermContainer);
+
+  // Send keystrokes to PTY
+  term.onData((data) => {
+    if (isSpawned && sessionId) {
+      invoke("terminal_write", {
+        terminalId: sessionId,
+        data,
+      }).catch(() => {});
+    }
+  });
 
   // Listen for PTY output
   listen<{ id: string; data: string; stream: string }>("terminal-output", (event) => {
-    if (event.payload.id !== sessionId) return;
-    appendOutput(event.payload.data, event.payload.stream);
+    if (event.payload.id !== sessionId || !term) return;
+    term.write(event.payload.data);
   });
 
   listen<{ id: string; code: number }>("terminal-exit", (event) => {
-    if (event.payload.id !== sessionId) return;
-    appendOutput(`\nProcess exited (${event.payload.code})\n`, "exit");
+    if (event.payload.id !== sessionId || !term) return;
+    term.writeln(`\r\n[Process exited with code ${event.payload.code}]`);
     isSpawned = false;
     sessionId = null;
   });
-
-  function appendOutput(text: string, stream: string) {
-    // Parse ANSI escape codes minimally — strip them for now
-    const clean = text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
-    if (!clean) return;
-
-    const el = document.createElement("span");
-    el.className = `terminal-text ${stream === "stderr" ? "stderr" : ""}`;
-    el.textContent = clean;
-    output.appendChild(el);
-    output.scrollTop = output.scrollHeight;
-  }
 
   async function ensureSession() {
     if (isSpawned && sessionId) return;
@@ -78,78 +114,39 @@ export function initTerminal(getRootPath: () => string | null) {
         terminalId: sessionId,
       });
     } catch (err) {
-      appendOutput(`Failed to spawn terminal: ${err}\n`, "stderr");
+      term?.writeln(`\r\nFailed to spawn terminal: ${err}`);
       isSpawned = false;
       sessionId = null;
     }
   }
-
-  input.addEventListener("keydown", async (e) => {
-    if (e.key === "Enter") {
-      const cmd = input.value;
-      if (!cmd && !isSpawned) return;
-
-      input.value = "";
-      if (cmd) {
-        commandHistory.unshift(cmd);
-        historyIndex = -1;
-      }
-
-      if (isSpawned && sessionId) {
-        // Send to PTY
-        await invoke("terminal_write", {
-          terminalId: sessionId,
-          data: cmd + "\n",
-        }).catch(() => {});
-      } else {
-        // Spawn PTY first, then send
-        await ensureSession();
-        if (sessionId) {
-          // PTY auto-starts shell, just send the command
-          if (cmd) {
-            // Small delay to let the shell start
-            setTimeout(async () => {
-              await invoke("terminal_write", {
-                terminalId: sessionId,
-                data: cmd + "\n",
-              }).catch(() => {});
-            }, 200);
-          }
-        }
-      }
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      if (historyIndex < commandHistory.length - 1) {
-        historyIndex++;
-        input.value = commandHistory[historyIndex];
-      }
-    } else if (e.key === "ArrowDown") {
-      e.preventDefault();
-      if (historyIndex > 0) {
-        historyIndex--;
-        input.value = commandHistory[historyIndex];
-      } else {
-        historyIndex = -1;
-        input.value = "";
-      }
-    } else if (e.key === "c" && e.ctrlKey) {
-      // Send Ctrl+C to PTY
-      if (isSpawned && sessionId) {
-        await invoke("terminal_write", {
-          terminalId: sessionId,
-          data: "\x03",
-        }).catch(() => {});
-      }
-    }
-  });
 
   closeBtn.addEventListener("click", () => {
     document.getElementById("terminal-panel")!.classList.add("hidden");
   });
 
   clearBtn.addEventListener("click", () => {
-    output.innerHTML = "";
+    term?.clear();
   });
+
+  // Fit terminal when panel opens or resizes
+  const resizeObserver = new ResizeObserver(() => {
+    if (fitAddon && term) {
+      try {
+        fitAddon.fit();
+        // Notify PTY of new size
+        if (sessionId) {
+          invoke("terminal_resize", {
+            terminalId: sessionId,
+            cols: term.cols,
+            rows: term.rows,
+          }).catch(() => {});
+        }
+      } catch {
+        // Ignore fit errors when element is hidden
+      }
+    }
+  });
+  resizeObserver.observe(xtermContainer);
 
   // Auto-spawn when panel opens
   const observer = new MutationObserver(async () => {
@@ -158,7 +155,11 @@ export function initTerminal(getRootPath: () => string | null) {
       if (!isSpawned) {
         await ensureSession();
       }
-      input.focus();
+      // Fit after becoming visible
+      requestAnimationFrame(() => {
+        fitAddon?.fit();
+        term?.focus();
+      });
     }
   });
   observer.observe(document.getElementById("terminal-panel")!, {
@@ -172,8 +173,10 @@ export function toggleTerminal() {
   if (panel) {
     panel.classList.toggle("hidden");
     if (!panel.classList.contains("hidden")) {
-      const input = document.getElementById("terminal-input") as HTMLInputElement;
-      input?.focus();
+      requestAnimationFrame(() => {
+        fitAddon?.fit();
+        term?.focus();
+      });
     }
   }
 }
