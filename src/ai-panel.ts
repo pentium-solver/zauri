@@ -93,6 +93,111 @@ export function initAIPanel(
 
   let currentProvider = "claude";
 
+  // ---- Provider-specific configs ----
+  const providerConfigs: Record<string, {
+    models: { value: string; label: string }[];
+    defaultModel: string;
+    defaultModelLabel: string;
+    permissions: { value: string; label: string }[];
+    defaultPerm: string;
+    defaultPermLabel: string;
+  }> = {
+    claude: {
+      models: [
+        { value: "claude-opus-4-6", label: "Opus 4.6" },
+        { value: "claude-opus-4-6[1m]", label: "Opus 4.6 [1M]" },
+        { value: "claude-sonnet-4-6", label: "Sonnet 4.6" },
+        { value: "claude-sonnet-4-6[1m]", label: "Sonnet 4.6 [1M]" },
+        { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
+      ],
+      defaultModel: "claude-opus-4-6[1m]",
+      defaultModelLabel: "Opus 4.6 [1M]",
+      permissions: [
+        { value: "default", label: "Default" },
+        { value: "plan", label: "Plan" },
+        { value: "auto", label: "Auto" },
+        { value: "bypassPermissions", label: "Bypass" },
+      ],
+      defaultPerm: "default",
+      defaultPermLabel: "Default",
+    },
+    codex: {
+      models: [
+        { value: "o3", label: "o3" },
+        { value: "o4-mini", label: "o4-mini" },
+        { value: "gpt-4.1", label: "GPT-4.1" },
+        { value: "codex-mini", label: "Codex Mini" },
+      ],
+      defaultModel: "o4-mini",
+      defaultModelLabel: "o4-mini",
+      permissions: [
+        { value: "suggest", label: "Suggest" },
+        { value: "auto-edit", label: "Auto Edit" },
+        { value: "full-auto", label: "Full Auto" },
+      ],
+      defaultPerm: "full-auto",
+      defaultPermLabel: "Full Auto",
+    },
+  };
+
+  const modelBtn = panel.querySelector("#ai-model-btn") as HTMLElement;
+  const permBtn = panel.querySelector("#ai-permission-btn") as HTMLElement;
+
+  // Shared dropdown opener
+  function openDropdown(
+    triggerBtn: HTMLElement,
+    options: { value: string; label: string }[],
+  ) {
+    document.querySelectorAll(".custom-dropdown").forEach((d) => d.remove());
+    const menu = document.createElement("div");
+    menu.className = "custom-dropdown";
+    const currentVal = triggerBtn.dataset.value;
+
+    for (const opt of options) {
+      const item = document.createElement("div");
+      item.className = `custom-dropdown-item${opt.value === currentVal ? " selected" : ""}`;
+      item.innerHTML = `<span class="dropdown-check">${opt.value === currentVal ? "\u2713" : ""}</span> ${opt.label}`;
+      item.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        triggerBtn.dataset.value = opt.value;
+        triggerBtn.innerHTML = `${opt.label} <span class="dropdown-caret">&#9662;</span>`;
+        menu.remove();
+      });
+      menu.appendChild(item);
+    }
+
+    const rect = triggerBtn.getBoundingClientRect();
+    menu.style.left = `${rect.left}px`;
+    menu.style.bottom = `${window.innerHeight - rect.top + 4}px`;
+    document.body.appendChild(menu);
+
+    const closeMenu = () => {
+      menu.remove();
+      document.removeEventListener("click", closeMenu);
+    };
+    setTimeout(() => document.addEventListener("click", closeMenu), 0);
+  }
+
+  modelBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const cfg = providerConfigs[currentProvider] || providerConfigs.claude;
+    openDropdown(modelBtn, cfg.models);
+  });
+
+  permBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const cfg = providerConfigs[currentProvider] || providerConfigs.claude;
+    openDropdown(permBtn, cfg.permissions);
+  });
+
+  function switchProviderConfig(provider: string) {
+    const cfg = providerConfigs[provider] || providerConfigs.claude;
+    modelBtn.dataset.value = cfg.defaultModel;
+    modelBtn.innerHTML = `${cfg.defaultModelLabel} <span class="dropdown-caret">&#9662;</span>`;
+    permBtn.dataset.value = cfg.defaultPerm;
+    permBtn.innerHTML = `${cfg.defaultPermLabel} <span class="dropdown-caret">&#9662;</span>`;
+  }
+
   // Provider buttons
   const providerBtns = panel.querySelectorAll<HTMLButtonElement>(".ai-provider-btn");
   providerBtns.forEach((btn) => {
@@ -100,82 +205,13 @@ export function initAIPanel(
       providerBtns.forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       currentProvider = btn.dataset.provider || "claude";
+      switchProviderConfig(currentProvider);
       checkProvider(statusEl, currentProvider);
     });
   });
 
   // Check initial provider
   checkProvider(statusEl, "claude");
-
-  // Custom dropdown menus (replace native <select>)
-  function createDropdownMenu(
-    triggerBtn: HTMLElement,
-    options: { value: string; label: string }[],
-    onSelect: (value: string) => void,
-  ) {
-    triggerBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      // Close any existing dropdown
-      document.querySelectorAll(".custom-dropdown").forEach((d) => d.remove());
-
-      const menu = document.createElement("div");
-      menu.className = "custom-dropdown";
-      const currentVal = triggerBtn.dataset.value;
-
-      for (const opt of options) {
-        const item = document.createElement("div");
-        item.className = `custom-dropdown-item${opt.value === currentVal ? " selected" : ""}`;
-        item.innerHTML = `<span class="dropdown-check">${opt.value === currentVal ? "\u2713" : ""}</span> ${opt.label}`;
-        item.addEventListener("click", (ev) => {
-          ev.stopPropagation();
-          triggerBtn.dataset.value = opt.value;
-          triggerBtn.innerHTML = `${opt.label} <span class="dropdown-caret">&#9662;</span>`;
-          onSelect(opt.value);
-          menu.remove();
-        });
-        menu.appendChild(item);
-      }
-
-      // Position above the button
-      const rect = triggerBtn.getBoundingClientRect();
-      menu.style.left = `${rect.left}px`;
-      menu.style.bottom = `${window.innerHeight - rect.top + 4}px`;
-      document.body.appendChild(menu);
-
-      // Close on outside click
-      const closeMenu = () => {
-        menu.remove();
-        document.removeEventListener("click", closeMenu);
-      };
-      setTimeout(() => document.addEventListener("click", closeMenu), 0);
-    });
-  }
-
-  const modelBtn = panel.querySelector("#ai-model-btn") as HTMLElement;
-  const permBtn = panel.querySelector("#ai-permission-btn") as HTMLElement;
-
-  createDropdownMenu(
-    modelBtn,
-    [
-      { value: "claude-opus-4-6", label: "Opus 4.6" },
-      { value: "claude-opus-4-6[1m]", label: "Opus 4.6 [1M]" },
-      { value: "claude-sonnet-4-6", label: "Sonnet 4.6" },
-      { value: "claude-sonnet-4-6[1m]", label: "Sonnet 4.6 [1M]" },
-      { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
-    ],
-    () => {},
-  );
-
-  createDropdownMenu(
-    permBtn,
-    [
-      { value: "default", label: "Default" },
-      { value: "plan", label: "Plan" },
-      { value: "auto", label: "Auto" },
-      { value: "bypassPermissions", label: "Bypass" },
-    ],
-    () => {},
-  );
 
   // Resize handle
   const resizeHandle = document.getElementById("ai-resize-handle")!;
