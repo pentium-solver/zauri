@@ -53,7 +53,7 @@ export function createAIPanel(): HTMLElement {
           <span>Codex</span>
         </button>
         <div class="ai-toolbar-sep"></div>
-        <button class="ai-toolbar-dropdown-btn" id="ai-model-btn" data-value="opus">Opus <span class="dropdown-caret">&#9662;</span></button>
+        <button class="ai-toolbar-dropdown-btn" id="ai-model-btn" data-value="claude-opus-4-6[1m]">Opus 4.6 [1M] <span class="dropdown-caret">&#9662;</span></button>
         <div class="ai-toolbar-sep"></div>
         <button class="ai-toolbar-dropdown-btn" id="ai-permission-btn" data-value="default">Default <span class="dropdown-caret">&#9662;</span></button>
       </div>
@@ -157,9 +157,11 @@ export function initAIPanel(
   createDropdownMenu(
     modelBtn,
     [
-      { value: "opus", label: "Opus" },
-      { value: "sonnet", label: "Sonnet" },
-      { value: "haiku", label: "Haiku" },
+      { value: "claude-opus-4-6", label: "Opus 4.6" },
+      { value: "claude-opus-4-6[1m]", label: "Opus 4.6 [1M]" },
+      { value: "claude-sonnet-4-6", label: "Sonnet 4.6" },
+      { value: "claude-sonnet-4-6[1m]", label: "Sonnet 4.6 [1M]" },
+      { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
     ],
     () => {},
   );
