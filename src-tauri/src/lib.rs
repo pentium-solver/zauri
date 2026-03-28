@@ -419,6 +419,9 @@ fn ai_chat(
     working_dir: String,
     context_files: Vec<String>,
     provider: String,
+    session_id: Option<String>,
+    model: Option<String>,
+    permission_mode: Option<String>,
 ) -> Result<(), String> {
     // Build context from open files
     let mut full_prompt = String::new();
@@ -480,15 +483,33 @@ fn ai_chat(
                     full_prompt.clone(),
                 ],
             ),
-            _ => (
-                "claude".to_string(),
-                vec![
+            _ => {
+                let mut claude_args = vec![
                     "--print".to_string(),
                     "--output-format".to_string(),
                     "stream-json".to_string(),
                     "--include-partial-messages".to_string(),
-                ],
-            ),
+                ];
+                // Resume existing session for conversation continuity
+                if let Some(ref sid) = session_id {
+                    claude_args.push("--resume".to_string());
+                    claude_args.push(sid.clone());
+                }
+                // Model selection
+                if let Some(ref m) = model {
+                    claude_args.push("--model".to_string());
+                    claude_args.push(m.clone());
+                }
+                // Permission mode
+                if let Some(ref pm) = permission_mode {
+                    claude_args.push("--permission-mode".to_string());
+                    claude_args.push(pm.clone());
+                }
+                (
+                    "claude".to_string(),
+                    claude_args,
+                )
+            },
         };
 
         let use_stdin = provider != "codex";
@@ -543,7 +564,10 @@ fn ai_chat(
                                     }
                                 }
                                 Some("result") => {
-                                    // Final result — emit completion
+                                    // Emit session_id for conversation continuity
+                                    if let Some(sid) = event.get("session_id").and_then(|s| s.as_str()) {
+                                        let _ = app_handle.emit("ai-session-id", sid);
+                                    }
                                     got_result = true;
                                     let _ = app_handle.emit("ai-response-done", "ok");
                                 }

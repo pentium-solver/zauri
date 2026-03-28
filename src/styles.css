@@ -1345,6 +1345,39 @@ body {
   color: var(--text-dim);
 }
 
+.ai-toolbar-select {
+  background: rgba(255, 255, 255, 0.03);
+  border: 0.5px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 10px;
+  padding: 2px 6px;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l3 3 3-3' stroke='rgba(255,255,255,0.25)' stroke-width='1'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 4px center;
+  padding-right: 16px;
+  transition: all 0.15s;
+}
+
+.ai-toolbar-select:hover {
+  border-color: var(--border-light);
+  color: var(--text-primary);
+}
+
+.ai-toolbar-select:focus {
+  border-color: rgba(168, 130, 255, 0.4);
+}
+
+.ai-toolbar-select option {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }

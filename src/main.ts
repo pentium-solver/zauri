@@ -19,6 +19,8 @@ import {
   getThreadsForProject,
   createThread,
   addMessageToThread,
+  setThreadSessionId,
+  getThreadSessionId,
   onStoreChange,
   timeAgo,
   type Thread,
@@ -861,10 +863,16 @@ initAIPanel(
   { getFileContent, showProposedEdit, acceptAllEdits, rejectAllEdits },
   {
     getActiveThreadId: () => activeThreadId,
+    getSessionId: () => activeThreadId ? getThreadSessionId(activeThreadId) : undefined,
     saveMessage: async (role: "user" | "assistant", content: string) => {
       if (activeThreadId) {
         await addMessageToThread(activeThreadId, role, content);
         renderProjects();
+      }
+    },
+    saveSessionId: async (sid: string) => {
+      if (activeThreadId) {
+        await setThreadSessionId(activeThreadId, sid);
       }
     },
   },

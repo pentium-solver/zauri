@@ -16,6 +16,7 @@ export interface Thread {
   title: string;
   createdAt: string;
   messages: ThreadMessage[];
+  sessionId?: string; // Claude CLI session ID for conversation continuity
 }
 
 export interface ThreadMessage {
@@ -132,6 +133,18 @@ export async function renameThread(id: string, title: string) {
     thread.title = title;
     await saveStore();
   }
+}
+
+export async function setThreadSessionId(threadId: string, sessionId: string) {
+  const thread = store.threads.find((t) => t.id === threadId);
+  if (thread) {
+    thread.sessionId = sessionId;
+    await saveStore();
+  }
+}
+
+export function getThreadSessionId(threadId: string): string | undefined {
+  return store.threads.find((t) => t.id === threadId)?.sessionId;
 }
 
 export async function addMessageToThread(threadId: string, role: "user" | "assistant", content: string) {

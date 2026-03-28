@@ -53,7 +53,18 @@ export function createAIPanel(): HTMLElement {
           <span>Codex</span>
         </button>
         <div class="ai-toolbar-sep"></div>
-        <span id="ai-toolbar-status" class="ai-toolbar-info">Chat</span>
+        <select id="ai-model" class="ai-toolbar-select" title="Model">
+          <option value="sonnet">Sonnet</option>
+          <option value="opus" selected>Opus</option>
+          <option value="haiku">Haiku</option>
+        </select>
+        <div class="ai-toolbar-sep"></div>
+        <select id="ai-permission" class="ai-toolbar-select" title="Permission mode">
+          <option value="default">Default</option>
+          <option value="plan">Plan</option>
+          <option value="auto">Auto</option>
+          <option value="bypassPermissions">Bypass</option>
+        </select>
       </div>
     </div>
   `;
@@ -69,7 +80,9 @@ interface EditCallbacks {
 
 interface ThreadCallbacks {
   getActiveThreadId: () => string | null;
+  getSessionId: () => string | undefined;
   saveMessage: (role: "user" | "assistant", content: string) => Promise<void>;
+  saveSessionId: (sid: string) => Promise<void>;
 }
 
 export function initAIPanel(
@@ -194,6 +207,13 @@ export function initAIPanel(
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   });
 
+  // Capture session ID for conversation continuity
+  listen<string>("ai-session-id", (event) => {
+    if (event.payload && threadCallbacks) {
+      threadCallbacks.saveSessionId(event.payload);
+    }
+  });
+
   listen<string>("ai-response-done", (event) => {
     removeLoading();
     isStreaming = false;
@@ -307,11 +327,17 @@ export function initAIPanel(
     const openFiles = getOpenFilePaths();
     const rootPath = getRootPath() || ".";
 
+    const modelSelect = panel.querySelector("#ai-model") as HTMLSelectElement;
+    const permSelect = panel.querySelector("#ai-permission") as HTMLSelectElement;
+
     invoke("ai_chat", {
       prompt: text,
       workingDir: rootPath,
       contextFiles: openFiles,
       provider: currentProvider,
+      sessionId: threadCallbacks?.getSessionId() || null,
+      model: modelSelect?.value || null,
+      permissionMode: permSelect?.value || null,
     }).catch((err) => {
       const errMsg = createMessageEl("system", `Error: ${err}`);
       messagesContainer.appendChild(errMsg);
