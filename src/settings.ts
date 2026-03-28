@@ -90,11 +90,7 @@ export function showSettings() {
             <span class="settings-field-label">Tab Size</span>
             <span class="settings-field-desc">Number of spaces per indentation level.</span>
           </div>
-          <select id="set-tab-size">
-            <option value="2" ${settings.tabSize === 2 ? "selected" : ""}>2 spaces</option>
-            <option value="4" ${settings.tabSize === 4 ? "selected" : ""}>4 spaces</option>
-            <option value="8" ${settings.tabSize === 8 ? "selected" : ""}>8 spaces</option>
-          </select>
+          <button class="settings-dropdown-btn" id="set-tab-size" data-value="${settings.tabSize}">${settings.tabSize} spaces <span class="dropdown-caret">&#9662;</span></button>
         </div>
 
         <div class="settings-field">
@@ -186,9 +182,38 @@ export function showSettings() {
 
   page.querySelector("#set-back")!.addEventListener("click", close);
 
+  // Custom dropdown for tab size
+  const tabSizeBtn = page.querySelector("#set-tab-size") as HTMLElement;
+  tabSizeBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    document.querySelectorAll(".custom-dropdown").forEach((d) => d.remove());
+    const menu = document.createElement("div");
+    menu.className = "custom-dropdown";
+    for (const size of [2, 4, 8]) {
+      const item = document.createElement("div");
+      item.className = `custom-dropdown-item${String(size) === tabSizeBtn.dataset.value ? " selected" : ""}`;
+      item.innerHTML = `<span class="dropdown-check">${String(size) === tabSizeBtn.dataset.value ? "\u2713" : ""}</span> ${size} spaces`;
+      item.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        tabSizeBtn.dataset.value = String(size);
+        tabSizeBtn.innerHTML = `${size} spaces <span class="dropdown-caret">&#9662;</span>`;
+        menu.remove();
+      });
+      menu.appendChild(item);
+    }
+    const rect = tabSizeBtn.getBoundingClientRect();
+    menu.style.left = `${rect.left}px`;
+    menu.style.top = `${rect.bottom + 4}px`;
+    document.body.appendChild(menu);
+    setTimeout(() => {
+      const closeMenu = () => { menu.remove(); document.removeEventListener("click", closeMenu); };
+      document.addEventListener("click", closeMenu);
+    }, 0);
+  });
+
   page.querySelector("#set-save")!.addEventListener("click", async () => {
     settings.fontSize = parseInt((page.querySelector("#set-font-size") as HTMLInputElement).value) || 13;
-    settings.tabSize = parseInt((page.querySelector("#set-tab-size") as HTMLSelectElement).value) || 2;
+    settings.tabSize = parseInt((page.querySelector("#set-tab-size") as HTMLElement).dataset.value || "2");
     settings.wordWrap = (page.querySelector("#set-word-wrap") as HTMLInputElement).checked;
     const selectedProvider = page.querySelector(".settings-option.selected");
     settings.aiProvider = (selectedProvider?.getAttribute("data-val") as "claude" | "codex") || "claude";

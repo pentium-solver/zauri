@@ -1345,37 +1345,71 @@ body {
   color: var(--text-dim);
 }
 
-.ai-toolbar-select {
-  background: rgba(255, 255, 255, 0.03);
-  border: 0.5px solid var(--border);
-  border-radius: 4px;
+/* Custom dropdown buttons */
+.ai-toolbar-dropdown-btn {
+  background: none;
+  border: none;
   color: var(--text-muted);
   font-family: inherit;
-  font-size: 10px;
-  padding: 2px 6px;
-  outline: none;
+  font-size: 11px;
+  padding: 3px 4px;
   cursor: pointer;
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg width='8' height='5' viewBox='0 0 8 5' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l3 3 3-3' stroke='rgba(255,255,255,0.25)' stroke-width='1'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 4px center;
-  padding-right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  border-radius: 4px;
   transition: all 0.15s;
 }
 
-.ai-toolbar-select:hover {
-  border-color: var(--border-light);
+.ai-toolbar-dropdown-btn:hover {
   color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
 }
 
-.ai-toolbar-select:focus {
-  border-color: rgba(168, 130, 255, 0.4);
+.dropdown-caret {
+  font-size: 8px;
+  opacity: 0.5;
 }
 
-.ai-toolbar-select option {
+/* Custom dropdown menu (floating) */
+.custom-dropdown {
+  position: fixed;
+  min-width: 140px;
   background: var(--bg-elevated);
+  border: 0.5px solid var(--border-light);
+  border-radius: 10px;
+  padding: 4px;
+  z-index: 2000;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 0.5px rgba(255, 255, 255, 0.05);
+  animation: fadeIn 0.15s ease-out;
+}
+
+.custom-dropdown-item {
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.1s;
+}
+
+.custom-dropdown-item:hover {
+  background: rgba(255, 255, 255, 0.06);
   color: var(--text-primary);
+}
+
+.custom-dropdown-item.selected {
+  color: var(--text-primary);
+}
+
+.dropdown-check {
+  width: 14px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--accent);
 }
 
 @keyframes pulse {
@@ -1843,10 +1877,29 @@ body {
   width: 70px;
 }
 
-.settings-field input:focus,
-.settings-field select:focus {
-  border-color: rgba(168, 85, 247, 0.5);
-  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.1);
+.settings-field input:focus {
+  border-color: rgba(168, 130, 255, 0.5);
+  box-shadow: 0 0 0 2px rgba(168, 130, 255, 0.1);
+}
+
+.settings-dropdown-btn {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 6px 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 120px;
+  transition: all 0.15s;
+}
+
+.settings-dropdown-btn:hover {
+  border-color: var(--border-light);
 }
 
 /* Toggle switch */

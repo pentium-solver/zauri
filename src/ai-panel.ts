@@ -53,18 +53,9 @@ export function createAIPanel(): HTMLElement {
           <span>Codex</span>
         </button>
         <div class="ai-toolbar-sep"></div>
-        <select id="ai-model" class="ai-toolbar-select" title="Model">
-          <option value="sonnet">Sonnet</option>
-          <option value="opus" selected>Opus</option>
-          <option value="haiku">Haiku</option>
-        </select>
+        <button class="ai-toolbar-dropdown-btn" id="ai-model-btn" data-value="opus">Opus <span class="dropdown-caret">&#9662;</span></button>
         <div class="ai-toolbar-sep"></div>
-        <select id="ai-permission" class="ai-toolbar-select" title="Permission mode">
-          <option value="default">Default</option>
-          <option value="plan">Plan</option>
-          <option value="auto">Auto</option>
-          <option value="bypassPermissions">Bypass</option>
-        </select>
+        <button class="ai-toolbar-dropdown-btn" id="ai-permission-btn" data-value="default">Default <span class="dropdown-caret">&#9662;</span></button>
       </div>
     </div>
   `;
@@ -115,6 +106,74 @@ export function initAIPanel(
 
   // Check initial provider
   checkProvider(statusEl, "claude");
+
+  // Custom dropdown menus (replace native <select>)
+  function createDropdownMenu(
+    triggerBtn: HTMLElement,
+    options: { value: string; label: string }[],
+    onSelect: (value: string) => void,
+  ) {
+    triggerBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      // Close any existing dropdown
+      document.querySelectorAll(".custom-dropdown").forEach((d) => d.remove());
+
+      const menu = document.createElement("div");
+      menu.className = "custom-dropdown";
+      const currentVal = triggerBtn.dataset.value;
+
+      for (const opt of options) {
+        const item = document.createElement("div");
+        item.className = `custom-dropdown-item${opt.value === currentVal ? " selected" : ""}`;
+        item.innerHTML = `<span class="dropdown-check">${opt.value === currentVal ? "\u2713" : ""}</span> ${opt.label}`;
+        item.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          triggerBtn.dataset.value = opt.value;
+          triggerBtn.innerHTML = `${opt.label} <span class="dropdown-caret">&#9662;</span>`;
+          onSelect(opt.value);
+          menu.remove();
+        });
+        menu.appendChild(item);
+      }
+
+      // Position above the button
+      const rect = triggerBtn.getBoundingClientRect();
+      menu.style.left = `${rect.left}px`;
+      menu.style.bottom = `${window.innerHeight - rect.top + 4}px`;
+      document.body.appendChild(menu);
+
+      // Close on outside click
+      const closeMenu = () => {
+        menu.remove();
+        document.removeEventListener("click", closeMenu);
+      };
+      setTimeout(() => document.addEventListener("click", closeMenu), 0);
+    });
+  }
+
+  const modelBtn = panel.querySelector("#ai-model-btn") as HTMLElement;
+  const permBtn = panel.querySelector("#ai-permission-btn") as HTMLElement;
+
+  createDropdownMenu(
+    modelBtn,
+    [
+      { value: "opus", label: "Opus" },
+      { value: "sonnet", label: "Sonnet" },
+      { value: "haiku", label: "Haiku" },
+    ],
+    () => {},
+  );
+
+  createDropdownMenu(
+    permBtn,
+    [
+      { value: "default", label: "Default" },
+      { value: "plan", label: "Plan" },
+      { value: "auto", label: "Auto" },
+      { value: "bypassPermissions", label: "Bypass" },
+    ],
+    () => {},
+  );
 
   // Resize handle
   const resizeHandle = document.getElementById("ai-resize-handle")!;
@@ -327,8 +386,8 @@ export function initAIPanel(
     const openFiles = getOpenFilePaths();
     const rootPath = getRootPath() || ".";
 
-    const modelSelect = panel.querySelector("#ai-model") as HTMLSelectElement;
-    const permSelect = panel.querySelector("#ai-permission") as HTMLSelectElement;
+    const modelVal = (panel.querySelector("#ai-model-btn") as HTMLElement)?.dataset.value || "opus";
+    const permVal = (panel.querySelector("#ai-permission-btn") as HTMLElement)?.dataset.value || "default";
 
     invoke("ai_chat", {
       prompt: text,
@@ -336,8 +395,8 @@ export function initAIPanel(
       contextFiles: openFiles,
       provider: currentProvider,
       sessionId: threadCallbacks?.getSessionId() || null,
-      model: modelSelect?.value || null,
-      permissionMode: permSelect?.value || null,
+      model: modelVal,
+      permissionMode: permVal,
     }).catch((err) => {
       const errMsg = createMessageEl("system", `Error: ${err}`);
       messagesContainer.appendChild(errMsg);
