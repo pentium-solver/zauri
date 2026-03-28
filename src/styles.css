@@ -690,19 +690,7 @@ body {
   white-space: nowrap;
 }
 
-/* ═══════════════════════ Status Bar ═══════════════════════ */
-#status-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 12px;
-  background: var(--bg-card);
-  border-top: 1px solid var(--border);
-  font-size: 11px;
-  color: var(--text-dim);
-  height: 24px;
-  flex-shrink: 0;
-}
+/* Status bar styles moved to the git section below */
 
 #status-perf {
   color: var(--success);
@@ -1444,6 +1432,383 @@ body {
 
 #status-revert:hover {
   color: var(--text-primary);
+}
+
+/* ═══════════════════════ Status Bar Git ═══════════════════════ */
+#status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 12px;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-dim);
+  height: 24px;
+  flex-shrink: 0;
+}
+
+#status-left, #status-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-git-item {
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.status-git-item:hover {
+  color: var(--text-primary);
+}
+
+.status-git-item.has-changes {
+  color: var(--warning);
+}
+
+/* ═══════════════════════ Branch Selector ═══════════════════════ */
+.branch-dropdown {
+  position: fixed;
+  width: 260px;
+  max-height: 300px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.branch-search {
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.branch-list {
+  overflow-y: auto;
+  max-height: 240px;
+  padding: 4px;
+}
+
+.branch-item {
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: background 0.1s;
+}
+
+.branch-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.branch-item.current {
+  color: var(--accent-light);
+}
+
+.branch-remote, .branch-current-badge {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.branch-remote {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+}
+
+.branch-current-badge {
+  background: var(--accent-subtle);
+  color: var(--accent-light);
+}
+
+.branch-create {
+  color: var(--success);
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 6px;
+}
+
+/* ═══════════════════════ Modals (shared) ═══════════════════════ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-overlay.hidden {
+  display: none;
+}
+
+.modal-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.modal-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.modal-body {
+  padding: 18px;
+}
+
+.modal-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.modal-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.modal-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.modal-btn.primary:hover {
+  background: var(--accent-dark);
+}
+
+/* ═══════════════════════ Settings ═══════════════════════ */
+.settings-section {
+  margin-bottom: 18px;
+}
+
+.settings-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+}
+
+.settings-row label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.settings-row input[type="number"],
+.settings-row input[type="text"],
+.settings-row select {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  outline: none;
+  width: 120px;
+}
+
+.settings-row input[type="number"] {
+  width: 60px;
+}
+
+.settings-row input:focus,
+.settings-row select:focus {
+  border-color: rgba(168, 85, 247, 0.5);
+}
+
+.settings-row input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+/* ═══════════════════════ Git Panel ═══════════════════════ */
+.git-status-summary {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.git-commit-input {
+  width: 100%;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 8px;
+  resize: none;
+  outline: none;
+  margin-bottom: 8px;
+}
+
+.git-commit-input:focus {
+  border-color: rgba(168, 85, 247, 0.5);
+}
+
+.git-actions-row {
+  display: flex;
+  gap: 6px;
+}
+
+.git-action-status {
+  margin-top: 10px;
+  font-size: 11px;
+  min-height: 16px;
+}
+
+.git-action-status.success {
+  color: var(--success);
+}
+
+.git-action-status.error {
+  color: var(--error);
+}
+
+/* ═══════════════════════ About ═══════════════════════ */
+.about-body {
+  text-align: center;
+}
+
+.about-title {
+  font-size: 36px;
+  font-weight: 300;
+  font-style: italic;
+  color: var(--accent-light);
+  margin-bottom: 2px;
+}
+
+.about-version {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+
+.about-tagline {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+}
+
+.about-section {
+  margin-bottom: 16px;
+  text-align: left;
+}
+
+.about-section h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.about-section ul {
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+.about-section p {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.about-tech-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tech-badge {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.about-link {
+  color: var(--accent-light);
+  text-decoration: none;
+  font-size: 12px;
+}
+
+.about-link:hover {
+  text-decoration: underline;
 }
 
 /* ═══════════════════════ Animations ═══════════════════════ */

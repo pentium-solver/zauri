@@ -191,6 +191,203 @@ fn save_project_store(data: String) -> Result<(), String> {
     std::fs::write(&path, data).map_err(|e| e.to_string())
 }
 
+// ---- Settings Persistence ----
+
+fn get_settings_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let dir = std::path::Path::new(&home).join(".zauri");
+    let _ = std::fs::create_dir_all(&dir);
+    dir.join("settings.json")
+}
+
+#[tauri::command]
+fn load_settings() -> Result<String, String> {
+    let path = get_settings_path();
+    match std::fs::read_to_string(&path) {
+        Ok(data) => Ok(data),
+        Err(_) => Ok(r#"{}"#.to_string()),
+    }
+}
+
+#[tauri::command]
+fn save_settings(data: String) -> Result<(), String> {
+    let path = get_settings_path();
+    std::fs::write(&path, data).map_err(|e| e.to_string())
+}
+
+// ---- Git Operations ----
+
+fn run_git(working_dir: &str, args: &[&str]) -> Result<String, String> {
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(working_dir)
+        .output()
+        .map_err(|e| format!("Failed to run git: {}", e))?;
+
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if stderr.is_empty() {
+            "Git command failed".to_string()
+        } else {
+            stderr
+        })
+    }
+}
+
+#[derive(Serialize)]
+struct GitStatus {
+    branch: String,
+    modified: u32,
+    added: u32,
+    deleted: u32,
+    ahead: u32,
+    behind: u32,
+    is_repo: bool,
+}
+
+#[tauri::command]
+fn git_status(working_dir: String) -> Result<GitStatus, String> {
+    // Check if it's a git repo
+    if run_git(&working_dir, &["rev-parse", "--is-inside-work-tree"]).is_err() {
+        return Ok(GitStatus {
+            branch: String::new(),
+            modified: 0,
+            added: 0,
+            deleted: 0,
+            ahead: 0,
+            behind: 0,
+            is_repo: false,
+        });
+    }
+
+    let branch = run_git(&working_dir, &["rev-parse", "--abbrev-ref", "HEAD"])
+        .unwrap_or_else(|_| "HEAD".to_string());
+
+    let porcelain = run_git(&working_dir, &["status", "--porcelain"]).unwrap_or_default();
+    let mut modified = 0u32;
+    let mut added = 0u32;
+    let mut deleted = 0u32;
+    for line in porcelain.lines() {
+        if line.len() < 2 {
+            continue;
+        }
+        let status = &line[..2];
+        if status.contains('M') {
+            modified += 1;
+        } else if status.contains('A') || status.contains('?') {
+            added += 1;
+        } else if status.contains('D') {
+            deleted += 1;
+        }
+    }
+
+    let (ahead, behind) =
+        match run_git(&working_dir, &["rev-list", "--count", "--left-right", "@{upstream}...HEAD"])
+        {
+            Ok(output) => {
+                let parts: Vec<&str> = output.split_whitespace().collect();
+                if parts.len() == 2 {
+                    (
+                        parts[1].parse().unwrap_or(0),
+                        parts[0].parse().unwrap_or(0),
+                    )
+                } else {
+                    (0, 0)
+                }
+            }
+            Err(_) => (0, 0), // No upstream
+        };
+
+    Ok(GitStatus {
+        branch,
+        modified,
+        added,
+        deleted,
+        ahead,
+        behind,
+        is_repo: true,
+    })
+}
+
+#[derive(Serialize)]
+struct GitBranch {
+    name: String,
+    is_current: bool,
+    is_remote: bool,
+}
+
+#[tauri::command]
+fn git_branches(working_dir: String) -> Result<Vec<GitBranch>, String> {
+    let output = run_git(&working_dir, &["branch", "-a", "--no-color"])?;
+    let mut branches = Vec::new();
+
+    for line in output.lines() {
+        let is_current = line.starts_with('*');
+        let name = line.trim_start_matches('*').trim().to_string();
+        if name.contains("HEAD ->") || name.is_empty() {
+            continue;
+        }
+        let is_remote = name.starts_with("remotes/");
+        let clean_name = name
+            .trim_start_matches("remotes/origin/")
+            .trim_start_matches("remotes/")
+            .to_string();
+
+        // Skip duplicates (remote branch that matches local)
+        if is_remote && branches.iter().any(|b: &GitBranch| b.name == clean_name) {
+            continue;
+        }
+
+        branches.push(GitBranch {
+            name: clean_name,
+            is_current,
+            is_remote,
+        });
+    }
+
+    Ok(branches)
+}
+
+#[tauri::command]
+fn git_checkout(working_dir: String, branch: String) -> Result<(), String> {
+    run_git(&working_dir, &["checkout", &branch])?;
+    Ok(())
+}
+
+#[tauri::command]
+fn git_create_branch(working_dir: String, branch: String) -> Result<(), String> {
+    run_git(&working_dir, &["checkout", "-b", &branch])?;
+    Ok(())
+}
+
+#[tauri::command]
+fn git_commit(working_dir: String, message: String) -> Result<String, String> {
+    run_git(&working_dir, &["add", "-A"])?;
+    let output = run_git(&working_dir, &["commit", "-m", &message])?;
+    // Extract commit hash from output
+    Ok(output.lines().next().unwrap_or("committed").to_string())
+}
+
+#[tauri::command]
+fn git_push(working_dir: String) -> Result<String, String> {
+    // Try regular push first, fall back to push -u origin <branch>
+    match run_git(&working_dir, &["push"]) {
+        Ok(out) => Ok(out),
+        Err(_) => {
+            let branch =
+                run_git(&working_dir, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_default();
+            run_git(&working_dir, &["push", "-u", "origin", &branch])
+        }
+    }
+}
+
+#[tauri::command]
+fn git_pull(working_dir: String) -> Result<String, String> {
+    run_git(&working_dir, &["pull"])
+}
+
 // ---- AI Integration: Claude CLI agent ----
 
 #[tauri::command]
@@ -583,6 +780,15 @@ pub fn run() {
             get_startup_time,
             load_project_store,
             save_project_store,
+            load_settings,
+            save_settings,
+            git_status,
+            git_branches,
+            git_checkout,
+            git_create_branch,
+            git_commit,
+            git_push,
+            git_pull,
             check_ai_provider,
             ai_chat,
             terminal_spawn,

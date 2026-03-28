@@ -32,6 +32,12 @@
                 <line x1="8" y1="11" x2="12" y2="11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
               </svg>
             </button>
+            <button class="sidebar-action-btn" id="settings-btn" title="Settings (Cmd+,)">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="2.5" stroke="currentColor" stroke-width="1.2" fill="none"/>
+                <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" stroke="currentColor" stroke-width="1" stroke-linecap="round"/>
+              </svg>
+            </button>
             <button class="sidebar-action-btn" id="ai-btn" title="AI Assistant (Cmd+L)">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
                 <path d="M8 1.5L2 5v6l6 3.5L14 11V5z" stroke="currentColor" stroke-width="1.2" fill="none"/>
@@ -87,9 +93,16 @@
           <div id="search-results"></div>
         </div>
         <div id="status-bar">
-          <span id="status-file">No file open</span>
-          <span id="status-revert" style="display:none" title="Revert last AI edit">Revert</span>
-          <span id="status-perf"></span>
+          <div id="status-left">
+            <span id="status-git-branch" class="status-git-item" title="Click to switch branch"></span>
+            <span id="status-git-changes" class="status-git-item"></span>
+            <span id="status-git-sync" class="status-git-item"></span>
+            <span id="status-file">No file open</span>
+          </div>
+          <div id="status-right">
+            <span id="status-revert" style="display:none" title="Revert last AI edit">Revert</span>
+            <span id="status-perf"></span>
+          </div>
         </div>
       </div>
     </div>

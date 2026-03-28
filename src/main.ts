@@ -9,6 +9,9 @@ import { getFileIcon, getFolderIcon, chevronRight, chevronDown } from "./icons";
 import { getLanguageExtension } from "./languages";
 import { createAIPanel, initAIPanel, toggleAIPanel } from "./ai-panel";
 import { createTerminalPanel, initTerminal, toggleTerminal } from "./terminal";
+import { initGitStatus, showBranchSelector, toggleGitPanel, refreshStatus } from "./git";
+import { loadSettingsFromDisk, showSettings } from "./settings";
+import { showAbout } from "./about";
 import {
   loadProjects,
   createProject,
@@ -457,6 +460,7 @@ async function openFolder() {
     const folderName = selected.split("/").pop() || selected;
     await createProject(folderName, selected);
     renderProjects();
+    refreshStatus();
   }
 }
 
@@ -464,6 +468,7 @@ async function openProjectFolder(workspaceRoot: string) {
   rootPath = workspaceRoot;
   fileTree.innerHTML = "";
   await loadDirectory(workspaceRoot, fileTree);
+  refreshStatus();
 }
 
 // ---- Highlight active file in tree ----
@@ -499,12 +504,27 @@ document.addEventListener("keydown", (e) => {
   } else if (mod && e.key === "`") {
     e.preventDefault();
     toggleTerminal();
+  } else if (mod && e.key === ",") {
+    e.preventDefault();
+    showSettings();
+  } else if (mod && e.shiftKey && (e.key === "G" || e.key === "g")) {
+    e.preventDefault();
+    toggleGitPanel();
   } else if (e.key === "Escape") {
-    const aiPanel = document.getElementById("ai-panel");
-    if (aiPanel && !aiPanel.classList.contains("hidden")) {
-      aiPanel.classList.add("hidden");
-    } else if (!searchPanel.classList.contains("hidden")) {
-      searchPanel.classList.add("hidden");
+    // Close modals/panels in priority order
+    const settingsModal = document.getElementById("settings-modal");
+    const aboutModal = document.getElementById("about-modal");
+    if (settingsModal && !settingsModal.classList.contains("hidden")) {
+      settingsModal.classList.add("hidden");
+    } else if (aboutModal && !aboutModal.classList.contains("hidden")) {
+      aboutModal.classList.add("hidden");
+    } else {
+      const aiPanel = document.getElementById("ai-panel");
+      if (aiPanel && !aiPanel.classList.contains("hidden")) {
+        aiPanel.classList.add("hidden");
+      } else if (!searchPanel.classList.contains("hidden")) {
+        searchPanel.classList.add("hidden");
+      }
     }
   }
 });
@@ -831,6 +851,11 @@ initAIPanel(
 document.getElementById("search-btn")?.addEventListener("click", toggleSearch);
 document.getElementById("ai-btn")?.addEventListener("click", toggleAIPanel);
 document.getElementById("terminal-btn")?.addEventListener("click", toggleTerminal);
+document.getElementById("settings-btn")?.addEventListener("click", showSettings);
+document.getElementById("status-git-branch")?.addEventListener("click", showBranchSelector);
+
+// About: click on "Zauri Editor" title bar text (if exists) or status bar double-click
+document.querySelector(".about-trigger")?.addEventListener("click", showAbout);
 
 // ---- Resize handles ----
 function setupResize(
@@ -882,6 +907,12 @@ document.getElementById("status-revert")?.addEventListener("click", revertLast);
 
 // Load projects on startup
 loadProjects().then(() => renderProjects());
+
+// Init git status polling
+initGitStatus(() => rootPath);
+
+// Load settings
+loadSettingsFromDisk();
 
 // ---- Startup ----
 window.addEventListener("DOMContentLoaded", () => {
