@@ -989,17 +989,17 @@ body {
 #ai-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  padding: 6px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 
 .ai-msg {
   border-radius: 8px;
-  padding: 8px 12px;
+  padding: 6px 10px;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.45;
 }
 
 .ai-msg-user {
@@ -1033,7 +1033,7 @@ body {
   text-transform: uppercase;
   letter-spacing: 1px;
   color: var(--text-dim);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .ai-msg-user .ai-msg-header {
@@ -1049,11 +1049,15 @@ body {
 
 /* Markdown rendering inside AI messages */
 .ai-msg-content p {
-  margin: 0 0 8px;
+  margin: 0 0 4px;
 }
 
 .ai-msg-content p:last-child {
   margin-bottom: 0;
+}
+
+.ai-msg-content:empty {
+  display: none;
 }
 
 .ai-msg-content strong {
@@ -1597,12 +1601,15 @@ body {
 .ai-msg-actions {
   display: flex;
   gap: 2px;
-  margin-top: 4px;
+  height: 0;
+  overflow: hidden;
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: all 0.15s;
 }
 
 .ai-msg:hover .ai-msg-actions {
+  height: 22px;
+  margin-top: 3px;
   opacity: 1;
 }
 
