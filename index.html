@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Zauri Editor</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <div id="sidebar">
+        <div id="sidebar-header">
+          <button id="open-folder-btn" title="Open Folder">Open Folder</button>
+        </div>
+        <div id="file-tree"></div>
+      </div>
+      <div id="main">
+        <div id="tab-bar"></div>
+        <div id="editor-container">
+          <div id="welcome">
+            <h1>Zauri</h1>
+            <p>Open a folder to get started</p>
+            <p class="shortcut">Ctrl/Cmd+O &mdash; Open Folder</p>
+            <p class="shortcut">Ctrl/Cmd+S &mdash; Save File</p>
+            <p class="shortcut">Ctrl/Cmd+Shift+F &mdash; Search in Files</p>
+          </div>
+        </div>
+        <div id="search-panel" class="hidden">
+          <div id="search-header">
+            <input id="search-input" type="text" placeholder="Search in files..." />
+            <button id="search-close">&times;</button>
+          </div>
+          <div id="search-results"></div>
+        </div>
+        <div id="status-bar">
+          <span id="status-file">No file open</span>
+          <span id="status-perf"></span>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
