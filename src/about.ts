@@ -1,81 +1,153 @@
+let isOpen = false;
+
+export function isAboutOpen(): boolean {
+  return isOpen;
+}
+
 export function showAbout() {
-  let overlay = document.getElementById("about-modal");
-  if (overlay) {
-    overlay.classList.remove("hidden");
+  if (isOpen) return;
+  isOpen = true;
+
+  const container = document.getElementById("editor-container")!;
+  const existing = document.getElementById("about-page");
+  if (existing) {
+    existing.style.display = "flex";
     return;
   }
 
-  overlay = document.createElement("div");
-  overlay.id = "about-modal";
-  overlay.className = "modal-overlay";
-  overlay.innerHTML = `
-    <div class="modal-card" style="max-width:420px">
-      <div class="modal-header">
-        <span>About</span>
-        <button class="modal-close">&times;</button>
+  const page = document.createElement("div");
+  page.id = "about-page";
+  page.className = "settings-page";
+  page.innerHTML = `
+    <div class="settings-scroll">
+      <div class="about-hero">
+        <h1 class="about-logo">Zauri</h1>
+        <span class="about-ver">v0.1.0</span>
+        <p class="about-tagline">A lightweight, fast code editor with AI assistance.</p>
       </div>
-      <div class="modal-body about-body">
-        <h1 class="about-title">Zauri</h1>
-        <p class="about-version">v0.1.0</p>
-        <p class="about-tagline">A lightweight, fast code editor with AI assistance</p>
 
-        <div class="about-section">
-          <h3>What Zauri aims to do</h3>
-          <ul>
-            <li>Sub-100ms startup with native performance</li>
-            <li>Zig-powered backend for file I/O and search</li>
-            <li>Built-in AI coding assistant (Claude + Codex)</li>
-            <li>Inline diffs with accept/reject for AI edits</li>
-            <li>Git integration with branch management</li>
-            <li>Minimal footprint, maximal utility</li>
-          </ul>
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <h2>What Zauri aims to do</h2>
+          <p>Built for developers who want speed, simplicity, and AI-powered workflows.</p>
         </div>
-
-        <div class="about-section">
-          <h3>Tech Stack</h3>
-          <div class="about-tech-grid">
-            <span class="tech-badge">Tauri</span>
-            <span class="tech-badge">Rust</span>
-            <span class="tech-badge">Zig</span>
-            <span class="tech-badge">TypeScript</span>
-            <span class="tech-badge">CodeMirror 6</span>
-            <span class="tech-badge">xterm.js</span>
-            <span class="tech-badge">Vite</span>
+        <div class="about-goals">
+          <div class="about-goal">
+            <span class="about-goal-icon">&#9889;</span>
+            <div>
+              <strong>Sub-100ms startup</strong>
+              <p>Native performance with a Zig-powered backend for file I/O and search.</p>
+            </div>
+          </div>
+          <div class="about-goal">
+            <span class="about-goal-icon">&#129302;</span>
+            <div>
+              <strong>AI coding assistant</strong>
+              <p>Built-in Claude and Codex integration with inline diffs, accept/reject, and streaming responses.</p>
+            </div>
+          </div>
+          <div class="about-goal">
+            <span class="about-goal-icon">&#128268;</span>
+            <div>
+              <strong>Git integration</strong>
+              <p>Branch management, commit/push/pull, status tracking — all from the editor.</p>
+            </div>
+          </div>
+          <div class="about-goal">
+            <span class="about-goal-icon">&#128230;</span>
+            <div>
+              <strong>Minimal footprint</strong>
+              <p>~9MB binary, ~3MB DMG. No Electron. Desktop-native via Tauri.</p>
+            </div>
           </div>
         </div>
+      </div>
 
-        <div class="about-section">
-          <h3>Inspirations</h3>
-          <p>VS Code, t3code, Flora</p>
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <h2>Tech Stack</h2>
+          <p>The technologies powering Zauri.</p>
         </div>
+        <div class="about-tech-list">
+          <div class="about-tech-item">
+            <strong>Tauri</strong>
+            <span>Desktop framework (Rust core, web UI)</span>
+          </div>
+          <div class="about-tech-item">
+            <strong>Zig</strong>
+            <span>Backend library for file I/O and search</span>
+          </div>
+          <div class="about-tech-item">
+            <strong>Rust</strong>
+            <span>Tauri commands, FFI bridge, PTY terminal, git ops</span>
+          </div>
+          <div class="about-tech-item">
+            <strong>TypeScript</strong>
+            <span>Frontend application logic</span>
+          </div>
+          <div class="about-tech-item">
+            <strong>CodeMirror 6</strong>
+            <span>Code editor with 40+ language grammars</span>
+          </div>
+          <div class="about-tech-item">
+            <strong>xterm.js</strong>
+            <span>Terminal emulator (same as VS Code)</span>
+          </div>
+        </div>
+      </div>
 
-        <div class="about-section">
-          <a href="#" id="about-repo-link" class="about-link">github.com/pentium-solver/zauri</a>
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <h2>Inspirations</h2>
+          <p>Standing on the shoulders of giants.</p>
         </div>
+        <div class="about-inspirations">
+          <div class="about-insp-item">
+            <strong>VS Code</strong>
+            <span>The gold standard for code editors</span>
+          </div>
+          <div class="about-insp-item">
+            <strong>t3code</strong>
+            <span>AI-first editor with Claude/Codex integration</span>
+          </div>
+          <div class="about-insp-item">
+            <strong>Flora</strong>
+            <span>Clean, minimal editor design language</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-footer">
+        <a href="#" id="about-repo-link" class="about-repo-btn">View on GitHub</a>
+        <button class="settings-back-btn" id="about-back">&larr; Back</button>
       </div>
     </div>
   `;
 
-  const close = () => overlay!.classList.add("hidden");
-  overlay.querySelector(".modal-close")!.addEventListener("click", close);
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) close();
-  });
+  const close = () => {
+    page.style.display = "none";
+    isOpen = false;
+  };
 
-  overlay.querySelector("#about-repo-link")!.addEventListener("click", async (e) => {
+  page.querySelector("#about-back")!.addEventListener("click", close);
+
+  page.querySelector("#about-repo-link")!.addEventListener("click", async (e) => {
     e.preventDefault();
     try {
       const { openUrl } = await import("@tauri-apps/plugin-opener");
       await openUrl("https://github.com/pentium-solver/zauri");
     } catch {
-      // Fallback
       window.open("https://github.com/pentium-solver/zauri", "_blank");
     }
   });
 
-  document.body.appendChild(overlay);
+  container.appendChild(page);
 }
 
 export function hideAbout() {
-  document.getElementById("about-modal")?.classList.add("hidden");
+  const page = document.getElementById("about-page");
+  if (page) {
+    page.style.display = "none";
+    isOpen = false;
+  }
 }

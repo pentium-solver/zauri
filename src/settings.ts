@@ -20,6 +20,7 @@ const defaults: ZauriSettings = {
 
 let settings: ZauriSettings = { ...defaults };
 let onChangeCallback: ((s: ZauriSettings) => void) | null = null;
+let isOpen = false;
 
 export function getSettings(): ZauriSettings {
   return settings;
@@ -45,93 +46,165 @@ async function save() {
   onChangeCallback?.(settings);
 }
 
+export function isSettingsOpen(): boolean {
+  return isOpen;
+}
+
 export function showSettings() {
-  let overlay = document.getElementById("settings-modal");
-  if (overlay) {
-    overlay.classList.remove("hidden");
+  if (isOpen) return;
+  isOpen = true;
+
+  const container = document.getElementById("editor-container")!;
+  const existing = document.getElementById("settings-page");
+  if (existing) {
+    existing.style.display = "flex";
     return;
   }
 
-  overlay = document.createElement("div");
-  overlay.id = "settings-modal";
-  overlay.className = "modal-overlay";
-  overlay.innerHTML = `
-    <div class="modal-card" style="max-width:460px">
-      <div class="modal-header">
-        <span>Settings</span>
-        <button class="modal-close">&times;</button>
+  const page = document.createElement("div");
+  page.id = "settings-page";
+  page.className = "settings-page";
+  page.innerHTML = `
+    <div class="settings-scroll">
+      <div class="settings-top">
+        <h1>Settings</h1>
+        <p class="settings-subtitle">Configure app-level preferences for this device.</p>
       </div>
-      <div class="modal-body">
-        <div class="settings-section">
-          <div class="settings-section-title">Editor</div>
-          <div class="settings-row">
-            <label>Font Size</label>
-            <input type="number" id="set-font-size" min="10" max="24" value="${settings.fontSize}" />
+
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <h2>Editor</h2>
+          <p>Customize the code editor appearance and behavior.</p>
+        </div>
+
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-field-label">Font Size</span>
+            <span class="settings-field-desc">Size of text in the code editor (10-24px).</span>
           </div>
-          <div class="settings-row">
-            <label>Tab Size</label>
-            <select id="set-tab-size">
-              <option value="2" ${settings.tabSize === 2 ? "selected" : ""}>2</option>
-              <option value="4" ${settings.tabSize === 4 ? "selected" : ""}>4</option>
-              <option value="8" ${settings.tabSize === 8 ? "selected" : ""}>8</option>
-            </select>
+          <input type="number" id="set-font-size" min="10" max="24" value="${settings.fontSize}" />
+        </div>
+
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-field-label">Tab Size</span>
+            <span class="settings-field-desc">Number of spaces per indentation level.</span>
           </div>
-          <div class="settings-row">
-            <label>Word Wrap</label>
+          <select id="set-tab-size">
+            <option value="2" ${settings.tabSize === 2 ? "selected" : ""}>2 spaces</option>
+            <option value="4" ${settings.tabSize === 4 ? "selected" : ""}>4 spaces</option>
+            <option value="8" ${settings.tabSize === 8 ? "selected" : ""}>8 spaces</option>
+          </select>
+        </div>
+
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-field-label">Word Wrap</span>
+            <span class="settings-field-desc">Wrap long lines instead of horizontal scrolling.</span>
+          </div>
+          <label class="toggle">
             <input type="checkbox" id="set-word-wrap" ${settings.wordWrap ? "checked" : ""} />
-          </div>
+            <span class="toggle-slider"></span>
+          </label>
         </div>
-        <div class="settings-section">
-          <div class="settings-section-title">AI</div>
-          <div class="settings-row">
-            <label>Default Provider</label>
-            <select id="set-ai-provider">
-              <option value="claude" ${settings.aiProvider === "claude" ? "selected" : ""}>Claude</option>
-              <option value="codex" ${settings.aiProvider === "codex" ? "selected" : ""}>Codex</option>
-            </select>
-          </div>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <h2>AI Assistant</h2>
+          <p>Configure the default AI coding assistant provider.</p>
         </div>
-        <div class="settings-section">
-          <div class="settings-section-title">Git</div>
-          <div class="settings-row">
-            <label>Author Name</label>
-            <input type="text" id="set-git-name" value="${settings.gitAuthorName}" placeholder="Your Name" />
-          </div>
-          <div class="settings-row">
-            <label>Author Email</label>
-            <input type="text" id="set-git-email" value="${settings.gitAuthorEmail}" placeholder="you@example.com" />
-          </div>
+
+        <div class="settings-option-group">
+          <label class="settings-option ${settings.aiProvider === "claude" ? "selected" : ""}" data-val="claude">
+            <div class="settings-option-info">
+              <span class="settings-option-name">Claude</span>
+              <span class="settings-option-desc">Anthropic's Claude Code CLI.</span>
+            </div>
+            ${settings.aiProvider === "claude" ? '<span class="settings-selected-badge">SELECTED</span>' : ""}
+          </label>
+          <label class="settings-option ${settings.aiProvider === "codex" ? "selected" : ""}" data-val="codex">
+            <div class="settings-option-info">
+              <span class="settings-option-name">Codex</span>
+              <span class="settings-option-desc">OpenAI's Codex CLI.</span>
+            </div>
+            ${settings.aiProvider === "codex" ? '<span class="settings-selected-badge">SELECTED</span>' : ""}
+          </label>
         </div>
-        <div class="settings-actions">
-          <button class="modal-btn primary" id="set-save">Save</button>
-          <button class="modal-btn" id="set-cancel">Cancel</button>
+      </div>
+
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <h2>Git</h2>
+          <p>Configure Git identity for commits made from Zauri.</p>
         </div>
+
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-field-label">Author Name</span>
+            <span class="settings-field-desc">Your name for Git commits.</span>
+          </div>
+          <input type="text" id="set-git-name" value="${settings.gitAuthorName}" placeholder="Your Name" />
+        </div>
+
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-field-label">Author Email</span>
+            <span class="settings-field-desc">Your email for Git commits.</span>
+          </div>
+          <input type="text" id="set-git-email" value="${settings.gitAuthorEmail}" placeholder="you@example.com" />
+        </div>
+      </div>
+
+      <div class="settings-footer">
+        <button class="settings-save-btn" id="set-save">Save Settings</button>
+        <button class="settings-back-btn" id="set-back">&larr; Back</button>
       </div>
     </div>
   `;
 
-  const close = () => overlay!.classList.add("hidden");
-
-  overlay.querySelector(".modal-close")!.addEventListener("click", close);
-  overlay.querySelector("#set-cancel")!.addEventListener("click", close);
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) close();
+  // AI provider selection
+  page.querySelectorAll(".settings-option").forEach((opt) => {
+    opt.addEventListener("click", () => {
+      page.querySelectorAll(".settings-option").forEach((o) => {
+        o.classList.remove("selected");
+        const badge = o.querySelector(".settings-selected-badge");
+        if (badge) badge.remove();
+      });
+      opt.classList.add("selected");
+      const badge = document.createElement("span");
+      badge.className = "settings-selected-badge";
+      badge.textContent = "SELECTED";
+      opt.appendChild(badge);
+    });
   });
 
-  overlay.querySelector("#set-save")!.addEventListener("click", async () => {
-    settings.fontSize = parseInt((overlay!.querySelector("#set-font-size") as HTMLInputElement).value) || 13;
-    settings.tabSize = parseInt((overlay!.querySelector("#set-tab-size") as HTMLSelectElement).value) || 2;
-    settings.wordWrap = (overlay!.querySelector("#set-word-wrap") as HTMLInputElement).checked;
-    settings.aiProvider = (overlay!.querySelector("#set-ai-provider") as HTMLSelectElement).value as "claude" | "codex";
-    settings.gitAuthorName = (overlay!.querySelector("#set-git-name") as HTMLInputElement).value;
-    settings.gitAuthorEmail = (overlay!.querySelector("#set-git-email") as HTMLInputElement).value;
+  const close = () => {
+    page.style.display = "none";
+    isOpen = false;
+  };
+
+  page.querySelector("#set-back")!.addEventListener("click", close);
+
+  page.querySelector("#set-save")!.addEventListener("click", async () => {
+    settings.fontSize = parseInt((page.querySelector("#set-font-size") as HTMLInputElement).value) || 13;
+    settings.tabSize = parseInt((page.querySelector("#set-tab-size") as HTMLSelectElement).value) || 2;
+    settings.wordWrap = (page.querySelector("#set-word-wrap") as HTMLInputElement).checked;
+    const selectedProvider = page.querySelector(".settings-option.selected");
+    settings.aiProvider = (selectedProvider?.getAttribute("data-val") as "claude" | "codex") || "claude";
+    settings.gitAuthorName = (page.querySelector("#set-git-name") as HTMLInputElement).value;
+    settings.gitAuthorEmail = (page.querySelector("#set-git-email") as HTMLInputElement).value;
     await save();
     close();
   });
 
-  document.body.appendChild(overlay);
+  container.appendChild(page);
 }
 
 export function hideSettings() {
-  document.getElementById("settings-modal")?.classList.add("hidden");
+  const page = document.getElementById("settings-page");
+  if (page) {
+    page.style.display = "none";
+    isOpen = false;
+  }
 }

@@ -854,8 +854,7 @@ document.getElementById("terminal-btn")?.addEventListener("click", toggleTermina
 document.getElementById("settings-btn")?.addEventListener("click", showSettings);
 document.getElementById("status-git-branch")?.addEventListener("click", showBranchSelector);
 
-// About: click on "Zauri Editor" title bar text (if exists) or status bar double-click
-document.querySelector(".about-trigger")?.addEventListener("click", showAbout);
+document.getElementById("about-btn")?.addEventListener("click", showAbout);
 
 // ---- Resize handles ----
 function setupResize(
