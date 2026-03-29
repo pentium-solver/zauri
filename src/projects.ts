@@ -24,6 +24,8 @@ export interface Thread {
   messages: ThreadMessage[];
   sessionId?: string;
   provider?: string;
+  model?: string;
+  permissionMode?: string;
   usage?: ThreadUsage;
 }
 
@@ -158,6 +160,23 @@ export async function setThreadSessionId(threadId: string, sessionId: string) {
   }
 }
 
+export async function setThreadModelAndPermission(threadId: string, model: string, permissionMode: string) {
+  const thread = store.threads.find((t) => t.id === threadId);
+  if (thread) {
+    thread.model = model;
+    thread.permissionMode = permissionMode;
+    await saveStore();
+  }
+}
+
+export async function clearThreadSessionId(threadId: string) {
+  const thread = store.threads.find((t) => t.id === threadId);
+  if (thread) {
+    delete thread.sessionId;
+    await saveStore();
+  }
+}
+
 export function getThreadSessionId(threadId: string): string | undefined {
   return store.threads.find((t) => t.id === threadId)?.sessionId;
 }
@@ -174,14 +193,15 @@ export function getThreadProvider(threadId: string): string | undefined {
   return store.threads.find((t) => t.id === threadId)?.provider;
 }
 
-export async function forkThread(threadId: string, newProvider: string): Promise<Thread | null> {
+export async function forkThread(threadId: string, newProvider: string, titleSuffix?: string): Promise<Thread | null> {
   const source = store.threads.find((t) => t.id === threadId);
   if (!source) return null;
 
+  const suffix = titleSuffix ?? (newProvider === "codex" ? "Codex" : "Claude") + " fork";
   const forked: Thread = {
     id: uid(),
     projectId: source.projectId,
-    title: `${source.title} (${newProvider === "codex" ? "Codex" : "Claude"} fork)`,
+    title: `${source.title} (${suffix})`,
     createdAt: new Date().toISOString(),
     messages: source.messages.map((m) => ({ ...m })),
     provider: newProvider,

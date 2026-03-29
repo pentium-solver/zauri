@@ -163,6 +163,21 @@ export function showSettings() {
         </div>
       </div>
 
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <h2>Danger Zone</h2>
+          <p>Force quit background processes.</p>
+        </div>
+
+        <div class="settings-field">
+          <div class="settings-field-info">
+            <span class="settings-field-label">Kill Claude</span>
+            <span class="settings-field-desc">Force quit all running claude processes.</span>
+          </div>
+          <button class="settings-danger-btn" id="set-kill-claude">Force Quit</button>
+        </div>
+      </div>
+
       <div class="settings-footer">
         <button class="settings-save-btn" id="set-save">Save Settings</button>
         <button class="settings-back-btn" id="set-back">&larr; Back</button>
@@ -232,6 +247,19 @@ export function showSettings() {
     settings.gitAuthorEmail = (page.querySelector("#set-git-email") as HTMLInputElement).value;
     await save();
     close();
+  });
+
+  page.querySelector("#set-kill-claude")!.addEventListener("click", async () => {
+    const btn = page.querySelector("#set-kill-claude") as HTMLButtonElement;
+    btn.disabled = true;
+    btn.textContent = "Killing...";
+    try {
+      await invoke("kill_claude_processes");
+      btn.textContent = "Done";
+    } catch {
+      btn.textContent = "Failed";
+    }
+    setTimeout(() => { btn.disabled = false; btn.textContent = "Force Quit"; }, 2000);
   });
 
   container.appendChild(page);

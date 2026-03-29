@@ -26,6 +26,10 @@ import {
   addMessageToThread,
   setThreadSessionId,
   getThreadSessionId,
+  clearThreadSessionId,
+  setThreadModelAndPermission,
+  forkThread,
+  getThreadProvider,
   onStoreChange,
   saveSession,
   getSession,
@@ -831,11 +835,14 @@ function switchToThread(thread: Thread, workspaceRoot: string) {
       aiMessages.scrollTop = aiMessages.scrollHeight;
     });
   }
-  // Restore token usage for this thread
+  // Restore token usage, model/permission, and placeholder for this thread
   const aiPanel = document.getElementById("ai-panel");
   if (aiPanel) {
     (aiPanel as any)._restoreUsage?.(thread.id);
     (aiPanel as any)._updatePlaceholder?.(thread.messages.length > 0);
+    if (thread.model && thread.permissionMode) {
+      (aiPanel as any)._setModelAndPermission?.(thread.model, thread.permissionMode);
+    }
   }
 
   // Open the project folder if not already open
@@ -1036,6 +1043,25 @@ initAIPanel(
     saveSessionId: async (sid: string) => {
       if (activeThreadId) {
         await setThreadSessionId(activeThreadId, sid);
+      }
+    },
+    clearSessionId: async () => {
+      if (activeThreadId) {
+        await clearThreadSessionId(activeThreadId);
+      }
+    },
+    saveModelAndPermission: async (model: string, permissionMode: string) => {
+      if (activeThreadId) {
+        await setThreadModelAndPermission(activeThreadId, model, permissionMode);
+      }
+    },
+    forkAndSwitch: async () => {
+      if (!activeThreadId || !rootPath) return;
+      const currentProvider = getThreadProvider(activeThreadId) || "claude";
+      const forked = await forkThread(activeThreadId, currentProvider, "new session");
+      if (forked) {
+        switchToThread(forked, rootPath);
+        renderProjects();
       }
     },
   },

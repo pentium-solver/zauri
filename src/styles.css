@@ -2699,6 +2699,28 @@ body {
   color: var(--text-primary);
 }
 
+.settings-danger-btn {
+  padding: 6px 16px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #ef4444;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.settings-danger-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.7);
+}
+
+.settings-danger-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* ═══════════════════════ Git Panel ═══════════════════════ */
 .git-panel-body {
   padding: 16px;

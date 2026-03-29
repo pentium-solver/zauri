@@ -121,6 +121,9 @@ interface ThreadCallbacks {
   getSessionId: () => string | undefined;
   saveMessage: (role: "user" | "assistant", content: string) => Promise<void>;
   saveSessionId: (sid: string) => Promise<void>;
+  clearSessionId: () => Promise<void>;
+  forkAndSwitch: () => Promise<void>;
+  saveModelAndPermission: (model: string, permissionMode: string) => Promise<void>;
 }
 
 export function initAIPanel(
@@ -531,6 +534,9 @@ export function initAIPanel(
   listen<string>("ai-rate-limit", (event) => {
     try {
       const data = JSON.parse(event.payload);
+      if (data.status === "rejected") {
+        threadCallbacks?.forkAndSwitch();
+      }
       if (data.resets_at > 0) {
         rateLimitBar.classList.remove("hidden");
         const now = Date.now() / 1000;
@@ -849,7 +855,7 @@ export function initAIPanel(
         markdownRenderPending = true;
         requestAnimationFrame(() => {
           markdownRenderPending = false;
-          if (contentEl) {
+          if (contentEl && isStreaming) {
             contentEl.innerHTML = renderMarkdown(currentStreamContent);
             linkifyFilePaths(contentEl as HTMLElement);
           }
@@ -1202,6 +1208,8 @@ export function initAIPanel(
     attachedImages = [];
     renderImagePreview();
 
+    threadCallbacks?.saveModelAndPermission(modelVal, permVal);
+
     invoke("ai_chat", {
       prompt: projectContext ? `${projectContext}\n\n${text}` : text,
       workingDir: rootPath,
@@ -1261,6 +1269,20 @@ export function initAIPanel(
       input.placeholder = "Ask about your code... (try /init)";
     } else {
       input.placeholder = "Ask about your code...";
+    }
+  };
+
+  (panel as any)._setModelAndPermission = (model: string, permissionMode: string) => {
+    const cfg = providerConfigs[currentProvider] || providerConfigs.claude;
+    const modelOpt = cfg.models.find((m: { value: string }) => m.value === model);
+    if (modelOpt) {
+      modelBtn.dataset.value = model;
+      modelBtn.innerHTML = `${modelOpt.label} <span class="dropdown-caret">&#9662;</span>`;
+    }
+    const permOpt = cfg.permissions.find((p: { value: string }) => p.value === permissionMode);
+    if (permOpt) {
+      permBtn.dataset.value = permissionMode;
+      permBtn.innerHTML = `${permOpt.label} <span class="dropdown-caret">&#9662;</span>`;
     }
   };
 }

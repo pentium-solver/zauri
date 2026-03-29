@@ -762,8 +762,9 @@ fn ai_chat(
                                 Some("rate_limit_event") => {
                                     if let Some(info) = event.get("rate_limit_info") {
                                         let status = info.get("status").and_then(|s| s.as_str()).unwrap_or("unknown");
-                                        let resets_at = info.get("resetsAt").and_then(|r| r.as_u64()).unwrap_or(0);
-                                        let limit_type = info.get("rateLimitType").and_then(|t| t.as_str()).unwrap_or("");
+                                        let resets_at = info.get("resetsAt").or_else(|| info.get("resets_at")).and_then(|r| r.as_u64()).unwrap_or(0);
+                                        let limit_type = info.get("rateLimitType").or_else(|| info.get("rate_limit_type")).and_then(|t| t.as_str()).unwrap_or("");
+                                        let overage_reason = info.get("overageDisabledReason").and_then(|r| r.as_str()).unwrap_or("");
 
                                         let _ = app_handle.emit("ai-rate-limit", serde_json::json!({
                                             "status": status,
@@ -773,17 +774,20 @@ fn ai_chat(
 
                                         // If rate limited, show error and stop
                                         if status == "blocked" || status == "rejected" {
-                                            let mins = if resets_at > 0 {
+                                            let msg = if overage_reason == "out_of_credits" {
+                                                "Usage limit reached. Extra usage balance is empty — add credits or enable auto-reload at claude.ai/settings, or wait for your limit to reset.".to_string()
+                                            } else if overage_reason == "org_level_disabled" {
+                                                "Usage limit reached. Extra usage is disabled at the organization level — enable it at claude.ai/settings or wait for your limit to reset.".to_string()
+                                            } else if resets_at > 0 {
                                                 let now = std::time::SystemTime::now()
                                                     .duration_since(std::time::UNIX_EPOCH)
                                                     .unwrap_or_default()
                                                     .as_secs();
-                                                if resets_at > now { (resets_at - now) / 60 } else { 0 }
-                                            } else { 0 };
-                                            let msg = format!(
-                                                "Rate limit reached ({}). Resets in ~{} minutes.",
-                                                limit_type, mins
-                                            );
+                                                let mins = if resets_at > now { (resets_at - now) / 60 } else { 0 };
+                                                format!("Rate limit reached ({}). Resets in ~{} minutes.", limit_type, mins)
+                                            } else {
+                                                format!("Rate limit reached ({}). Please wait before retrying.", limit_type)
+                                            };
                                             eprintln!("[ai] {}", msg);
                                             let _ = app_handle.emit("ai-response-chunk", &msg);
                                             got_result = true;
@@ -1105,6 +1109,24 @@ fn ai_cancel() -> Result<(), String> {
 }
 
 #[tauri::command]
+fn kill_claude_processes() -> Result<String, String> {
+    if cfg!(target_os = "windows") {
+        let out = Command::new("taskkill")
+            .args(["/F", "/IM", "claude.exe"])
+            .output()
+            .map_err(|e| e.to_string())?;
+        Ok(String::from_utf8_lossy(&out.stdout).to_string())
+    } else {
+        let out = Command::new("pkill")
+            .args(["-9", "-f", "claude"])
+            .output()
+            .map_err(|e| e.to_string())?;
+        // pkill exits 1 if no processes matched — that's fine
+        Ok(format!("Killed {} process(es)", if out.status.success() { "all matching" } else { "0" }))
+    }
+}
+
+#[tauri::command]
 fn read_project_context(working_dir: String) -> Result<String, String> {
     for filename in &["CLAUDE.md", "claude.md", "AGENTS.md"] {
         let path = std::path::Path::new(&working_dir).join(filename);
@@ -1152,6 +1174,7 @@ pub fn run() {
             check_ai_provider,
             ai_chat,
             ai_cancel,
+            kill_claude_processes,
             terminal_spawn,
             terminal_write,
             terminal_resize,
