@@ -567,7 +567,9 @@ fn ai_chat(
         "- If asked to explain code, reference specific line numbers and function names.\n",
         "- When referencing files, use backtick-wrapped paths like `src/main.ts` or `server/main.go` so the editor can make them clickable.\n",
         "- If the task involves running commands (build, test, install), suggest the exact terminal commands.\n",
-        "- Don't apologize or hedge. Just do the task.\n"
+        "- Don't apologize or hedge. Just do the task.\n",
+        "- If asked about Zauri itself (features, updates, how it works), ",
+        "refer to https://raw.githubusercontent.com/pentium-solver/zauri/main/ZAURI_CONTEXT.md for the latest info.\n"
     ));
 
     // Spawn AI CLI in a thread to avoid blocking
