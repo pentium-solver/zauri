@@ -205,34 +205,46 @@ export function toggleGitPanel() {
   const root = getRootPath();
   if (!root || !cachedStatus?.is_repo) return;
 
+  const totalChanges = cachedStatus!.modified + cachedStatus!.added + cachedStatus!.deleted;
+
   gitPanel = document.createElement("div");
   gitPanel.className = "modal-overlay";
   gitPanel.innerHTML = `
-    <div class="modal-card" style="max-width:380px">
+    <div class="modal-card" style="max-width:400px">
       <div class="modal-header">
         <span>Git</span>
         <button class="modal-close">&times;</button>
       </div>
-      <div class="modal-body">
-        <div class="git-status-summary">
-          <span>Branch: <strong>${escapeHtml(cachedStatus!.branch)}</strong></span>
-          <span>${cachedStatus!.modified + cachedStatus!.added + cachedStatus!.deleted} changes</span>
+      <div class="git-panel-body">
+        <div class="git-branch-row">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <path d="M5 3v6.5a2.5 2.5 0 005 0V8M5 3L3 5M5 3l2 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <strong>${escapeHtml(cachedStatus!.branch)}</strong>
+          ${totalChanges > 0 ? `<span class="git-changes-badge">${totalChanges} change${totalChanges > 1 ? "s" : ""}</span>` : '<span class="git-clean-badge">Clean</span>'}
         </div>
-        <div class="settings-section">
-          <div class="settings-section-title">Commit</div>
-          <textarea id="git-commit-msg" class="git-commit-input" placeholder="Commit message..." rows="3"></textarea>
-          <div class="git-actions-row">
-            <button class="modal-btn primary" id="git-btn-commit">Commit</button>
-            <button class="modal-btn" id="git-btn-commit-push">Commit & Push</button>
+
+        <div class="git-section">
+          <textarea id="git-commit-msg" class="git-commit-input" placeholder="Commit message..." rows="2"></textarea>
+          <div class="git-btn-row">
+            <button class="git-action-button primary" id="git-btn-commit">Commit</button>
+            <button class="git-action-button" id="git-btn-commit-push">Commit & Push</button>
           </div>
         </div>
-        <div class="settings-section">
-          <div class="settings-section-title">Sync</div>
-          <div class="git-actions-row">
-            <button class="modal-btn" id="git-btn-pull">Pull</button>
-            <button class="modal-btn" id="git-btn-push">Push</button>
-          </div>
+
+        <div class="git-divider"></div>
+
+        <div class="git-btn-row">
+          <button class="git-action-button" id="git-btn-pull">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M5 10l3 3 3-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Pull
+          </button>
+          <button class="git-action-button" id="git-btn-push">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 13V3M5 6l3-3 3 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Push
+          </button>
         </div>
+
         <div id="git-action-status" class="git-action-status"></div>
       </div>
     </div>
