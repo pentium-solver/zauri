@@ -1313,6 +1313,14 @@ body {
   gap: 4px;
   border-top: 0.5px solid var(--border);
   background: rgba(255, 255, 255, 0.01);
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  min-height: 34px;
+  flex-shrink: 0;
+}
+
+#ai-toolbar::-webkit-scrollbar {
+  height: 0;
 }
 
 .ai-provider-btn {
@@ -1328,6 +1336,8 @@ body {
   font-size: 11px;
   cursor: pointer;
   transition: all 0.15s;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .ai-provider-btn:hover {
@@ -1353,7 +1363,8 @@ body {
   width: 1px;
   height: 16px;
   background: var(--border);
-  margin: 0 4px;
+  margin: 0 2px;
+  flex-shrink: 0;
 }
 
 .ai-toolbar-info {
@@ -1375,6 +1386,8 @@ body {
   gap: 3px;
   border-radius: 4px;
   transition: all 0.15s;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .ai-toolbar-dropdown-btn:hover {
@@ -1550,6 +1563,8 @@ body {
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.15s;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .ai-toolbar-toggle:hover {
