@@ -60,15 +60,13 @@ export function createAIPanel(): HTMLElement {
       <div id="ai-composer">
         <textarea id="ai-input" placeholder="Ask about your code..." rows="3"></textarea>
         <button id="ai-send" title="Send (Enter)">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <circle cx="8" cy="8" r="7" fill="currentColor" opacity="0.15"/>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
             <path d="M6 4l5 4-5 4" fill="currentColor"/>
           </svg>
         </button>
         <button id="ai-stop" class="hidden" title="Stop (Esc)">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <circle cx="8" cy="8" r="7" fill="currentColor" opacity="0.15"/>
-            <rect x="5" y="5" width="6" height="6" rx="1" fill="currentColor"/>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor"/>
           </svg>
         </button>
       </div>
