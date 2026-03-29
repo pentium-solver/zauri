@@ -211,9 +211,12 @@ export function initAIPanel(
     }
 
     const rect = triggerBtn.getBoundingClientRect();
-    menu.style.left = `${rect.left}px`;
-    menu.style.bottom = `${window.innerHeight - rect.top + 4}px`;
     document.body.appendChild(menu);
+    // Clamp so menu doesn't overflow right edge
+    const menuWidth = menu.offsetWidth;
+    const left = Math.min(rect.left, window.innerWidth - menuWidth - 8);
+    menu.style.left = `${Math.max(4, left)}px`;
+    menu.style.bottom = `${window.innerHeight - rect.top + 4}px`;
 
     const closeMenu = () => {
       menu.remove();
