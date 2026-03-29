@@ -84,7 +84,7 @@ function updateStatusBar() {
 
 let branchDropdown: HTMLElement | null = null;
 
-export async function showBranchSelector() {
+export async function showBranchSelector(anchorEl?: HTMLElement) {
   if (branchDropdown) {
     branchDropdown.remove();
     branchDropdown = null;
@@ -160,12 +160,19 @@ export async function showBranchSelector() {
   searchInput.addEventListener("input", () => renderList(searchInput.value));
   renderList("");
 
-  // Position near the status bar branch element
-  const anchor = document.getElementById("status-git-branch");
+  // Position relative to the triggering element
+  const anchor = anchorEl || document.getElementById("status-git-branch");
   if (anchor) {
     const rect = anchor.getBoundingClientRect();
-    branchDropdown.style.left = `${rect.left}px`;
-    branchDropdown.style.bottom = `${window.innerHeight - rect.top + 4}px`;
+    // If anchor is near the top (sidebar), show below it
+    if (rect.top < window.innerHeight / 2) {
+      branchDropdown.style.left = `${rect.left}px`;
+      branchDropdown.style.top = `${rect.bottom + 4}px`;
+    } else {
+      // Near the bottom (status bar), show above it
+      branchDropdown.style.left = `${rect.left}px`;
+      branchDropdown.style.bottom = `${window.innerHeight - rect.top + 4}px`;
+    }
   }
 
   document.body.appendChild(branchDropdown);

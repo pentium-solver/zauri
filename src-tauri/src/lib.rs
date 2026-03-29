@@ -739,17 +739,48 @@ fn ai_chat(
                                         let _ = app_handle.emit("ai-response-chunk", text);
                                     }
                                 }
-                                Some("session.completed") | Some("agent.completed") => {
+                                Some("turn.completed") => {
+                                    // Codex turn complete — extract usage
+                                    if let Some(usage) = event.get("usage") {
+                                        let usage_data = serde_json::json!({
+                                            "input_tokens": usage.get("input_tokens").and_then(|t| t.as_u64()).unwrap_or(0),
+                                            "output_tokens": usage.get("output_tokens").and_then(|t| t.as_u64()).unwrap_or(0),
+                                            "cache_read": usage.get("cached_input_tokens").and_then(|t| t.as_u64()).unwrap_or(0),
+                                            "cost_usd": 0.0,
+                                            "duration_ms": 0,
+                                        });
+                                        let _ = app_handle.emit("ai-usage", usage_data.to_string());
+                                    }
                                     got_result = true;
                                     let _ = app_handle.emit("ai-response-done", "ok");
+                                }
+                                Some("session.completed") | Some("agent.completed") => {
+                                    if !got_result {
+                                        got_result = true;
+                                        let _ = app_handle.emit("ai-response-done", "ok");
+                                    }
                                 }
                                 Some("error") => {
                                     let msg = event.get("message")
                                         .or_else(|| event.get("error"))
                                         .and_then(|m| m.as_str())
                                         .unwrap_or("Unknown error");
-                                    eprintln!("[ai:error] {}", msg);
-                                    let _ = app_handle.emit("ai-response-chunk", &format!("Error: {}", msg));
+                                    let code = event.get("code")
+                                        .and_then(|c| c.as_str())
+                                        .unwrap_or("");
+                                    eprintln!("[ai:error] {} ({})", msg, code);
+
+                                    // Detect rate limit errors
+                                    let is_rate_limit = code.contains("rate_limit")
+                                        || msg.to_lowercase().contains("rate limit")
+                                        || msg.to_lowercase().contains("too many requests");
+
+                                    if is_rate_limit {
+                                        let _ = app_handle.emit("ai-response-chunk",
+                                            "Rate limit reached. Please wait before sending another message.");
+                                    } else {
+                                        let _ = app_handle.emit("ai-response-chunk", &format!("Error: {}", msg));
+                                    }
                                     got_result = true;
                                     let _ = app_handle.emit("ai-response-done", "error");
                                 }

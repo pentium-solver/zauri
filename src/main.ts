@@ -964,10 +964,14 @@ initAIPanel(
 // Wire up sidebar buttons
 document.getElementById("search-btn")?.addEventListener("click", toggleSearch);
 document.getElementById("settings-btn")?.addEventListener("click", showSettings);
-document.getElementById("status-git-branch")?.addEventListener("click", showBranchSelector);
+document.getElementById("status-git-branch")?.addEventListener("click", (e) => {
+  showBranchSelector(e.currentTarget as HTMLElement);
+});
 
 // Sidebar git bar
-document.getElementById("sidebar-branch-btn")?.addEventListener("click", showBranchSelector);
+document.getElementById("sidebar-branch-btn")?.addEventListener("click", (e) => {
+  showBranchSelector(e.currentTarget as HTMLElement);
+});
 document.getElementById("sidebar-git-actions-btn")?.addEventListener("click", toggleGitPanel);
 
 // Status bar quick actions
