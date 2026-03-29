@@ -1071,7 +1071,6 @@ fn ai_cancel() -> Result<(), String> {
 }
 
 #[tauri::command]
-#[tauri::command]
 fn read_project_context(working_dir: String) -> Result<String, String> {
     for filename in &["CLAUDE.md", "claude.md", "AGENTS.md"] {
         let path = std::path::Path::new(&working_dir).join(filename);
