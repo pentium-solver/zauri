@@ -489,6 +489,7 @@ fn ai_chat(
     model: Option<String>,
     permission_mode: Option<String>,
     stream_thinking: Option<bool>,
+    images: Option<Vec<String>>,
 ) -> Result<(), String> {
     // Build context from open files
     let mut full_prompt = String::new();
@@ -519,6 +520,16 @@ fn ai_chat(
     }
 
     full_prompt.push_str(&prompt);
+
+    // Append image references
+    if let Some(ref imgs) = images {
+        if !imgs.is_empty() {
+            full_prompt.push_str("\n\nThe user has attached the following image(s). Use the Read tool to view them:\n");
+            for img_path in imgs {
+                full_prompt.push_str(&format!("- {}\n", img_path));
+            }
+        }
+    }
 
     // Append system instructions
     full_prompt.push_str(concat!(
@@ -587,6 +598,13 @@ fn ai_chat(
                 if let Some(ref m) = model {
                     codex_args.push("-m".to_string());
                     codex_args.push(m.clone());
+                }
+                // Add images
+                if let Some(ref imgs) = images {
+                    for img_path in imgs {
+                        codex_args.push("-i".to_string());
+                        codex_args.push(img_path.clone());
+                    }
                 }
                 codex_args.push(full_prompt.clone());
                 (

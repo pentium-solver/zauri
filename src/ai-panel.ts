@@ -58,7 +58,13 @@ export function createAIPanel(): HTMLElement {
     <div id="ai-messages"></div>
     <div id="ai-input-area">
       <div id="ai-context-bar"></div>
+      <div id="ai-image-preview"></div>
       <div id="ai-composer">
+        <button id="ai-attach" class="ai-attach-btn" title="Attach image">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+            <path d="M14 8.5l-5.5 5.5a3.5 3.5 0 01-5-5L9 3.5a2 2 0 013 3L6.5 12a.5.5 0 01-.7-.7L11 6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          </svg>
+        </button>
         <textarea id="ai-input" placeholder="Ask about your code..." rows="3"></textarea>
         <button id="ai-send" title="Send (Enter)">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
@@ -728,6 +734,93 @@ export function initAIPanel(
     startGapTimer();
   });
 
+  // ---- Image attachments ----
+  const imagePreview = document.getElementById("ai-image-preview")!;
+  const attachBtn = document.getElementById("ai-attach")!;
+  let attachedImages: { name: string; path: string; dataUrl: string }[] = [];
+
+  function addImage(file: File) {
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUrl = reader.result as string;
+      // Save to temp file for CLI
+      const base64 = dataUrl.split(",")[1];
+      const ext = file.name.split(".").pop() || "png";
+      const tempName = `zauri-img-${Date.now()}.${ext}`;
+      const tempPath = `/tmp/${tempName}`;
+      try {
+        // Write base64 to temp file via Rust
+        const bytes = atob(base64);
+        const arr = new Uint8Array(bytes.length);
+        for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+        await invoke("write_file", { path: tempPath, content: Array.from(arr).map(b => String.fromCharCode(b)).join("") });
+      } catch { /* fallback: just keep dataUrl */ }
+
+      attachedImages.push({ name: file.name, path: tempPath, dataUrl });
+      renderImagePreview();
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function renderImagePreview() {
+    if (attachedImages.length === 0) {
+      imagePreview.innerHTML = "";
+      imagePreview.style.display = "none";
+      return;
+    }
+    imagePreview.style.display = "flex";
+    imagePreview.innerHTML = attachedImages.map((img, i) => `
+      <div class="ai-image-thumb">
+        <img src="${img.dataUrl}" alt="${img.name}" />
+        <button class="ai-image-remove" data-idx="${i}">&times;</button>
+      </div>
+    `).join("");
+    imagePreview.querySelectorAll(".ai-image-remove").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const idx = parseInt((e.target as HTMLElement).dataset.idx || "0");
+        attachedImages.splice(idx, 1);
+        renderImagePreview();
+      });
+    });
+  }
+
+  // Attach button — file picker
+  attachBtn.addEventListener("click", () => {
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept = "image/*";
+    fileInput.multiple = true;
+    fileInput.addEventListener("change", () => {
+      if (fileInput.files) {
+        Array.from(fileInput.files).forEach(addImage);
+      }
+    });
+    fileInput.click();
+  });
+
+  // Paste images
+  input.addEventListener("paste", (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) addImage(file);
+      }
+    }
+  });
+
+  // Drag and drop images
+  input.addEventListener("dragover", (e) => { e.preventDefault(); input.classList.add("drag-over"); });
+  input.addEventListener("dragleave", () => { input.classList.remove("drag-over"); });
+  input.addEventListener("drop", (e) => {
+    e.preventDefault();
+    input.classList.remove("drag-over");
+    if (e.dataTransfer?.files) {
+      Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/")).forEach(addImage);
+    }
+  });
+
   // Progressive markdown rendering flag
   let markdownRenderPending = false;
 
@@ -1104,6 +1197,11 @@ export function initAIPanel(
     const modelVal = (panel.querySelector("#ai-model-btn") as HTMLElement)?.dataset.value || "opus";
     const permVal = (panel.querySelector("#ai-permission-btn") as HTMLElement)?.dataset.value || "default";
 
+    const imagePaths = attachedImages.map((img) => img.path);
+    // Clear images after sending
+    attachedImages = [];
+    renderImagePreview();
+
     invoke("ai_chat", {
       prompt: projectContext ? `${projectContext}\n\n${text}` : text,
       workingDir: rootPath,
@@ -1111,6 +1209,7 @@ export function initAIPanel(
       provider: currentProvider,
       sessionId: threadCallbacks?.getSessionId() || null,
       model: modelVal,
+      images: imagePaths,
       permissionMode: permVal,
       streamThinking: thinkingBtn.dataset.enabled === "true",
     }).catch((err) => {
@@ -1239,10 +1338,16 @@ function createMessageEl(role: string, content: string): HTMLElement {
   const body = document.createElement("div");
   body.className = "ai-msg-content";
 
-  if (role === "assistant" && content) {
-    body.innerHTML = renderMarkdown(content);
-  } else {
-    body.textContent = content;
+  if (content) {
+    // Render markdown for both user and assistant messages
+    // (user messages may contain pasted code, backticks, lists, etc.)
+    const hasFormatting = content.includes("`") || content.includes("**") || content.includes("- ") || content.includes("```") || content.includes("1.");
+    if (role === "assistant" || hasFormatting) {
+      body.innerHTML = renderMarkdown(content);
+      if (role !== "system") linkifyFilePaths(body);
+    } else {
+      body.textContent = content;
+    }
   }
 
   // Hover actions
