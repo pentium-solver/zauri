@@ -553,6 +553,7 @@ fn ai_chat(
         "- Be concise. The user is a developer working in their editor.\n",
         "- If asked to create a file, use a `filepath:` block with the full content.\n",
         "- If asked to explain code, reference specific line numbers and function names.\n",
+        "- When referencing files, use backtick-wrapped paths like `src/main.ts` or `server/main.go` so the editor can make them clickable.\n",
         "- If the task involves running commands (build, test, install), suggest the exact terminal commands.\n",
         "- Don't apologize or hedge. Just do the task.\n"
     ));

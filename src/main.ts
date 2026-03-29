@@ -1114,6 +1114,16 @@ loadProjects().then(async () => {
 });
 
 // Listen for thread fork events from AI panel
+// Handle clickable file paths from AI panel
+window.addEventListener("zauri-open-file", ((e: CustomEvent) => {
+  const filePath = e.detail?.path;
+  if (!filePath || !rootPath) return;
+  // Resolve relative path against rootPath
+  const fullPath = filePath.startsWith("/") ? filePath : `${rootPath}/${filePath}`;
+  const name = fullPath.split("/").pop() || fullPath;
+  openFile(fullPath, name);
+}) as EventListener);
+
 window.addEventListener("zauri-switch-thread", ((e: CustomEvent) => {
   const { threadId, skipLoadMessages } = e.detail;
   if (!threadId) return;

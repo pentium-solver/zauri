@@ -758,6 +758,7 @@ export function initAIPanel(
           markdownRenderPending = false;
           if (contentEl) {
             contentEl.innerHTML = renderMarkdown(currentStreamContent);
+            linkifyFilePaths(contentEl as HTMLElement);
           }
           messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
@@ -849,6 +850,7 @@ export function initAIPanel(
       const lastMsg = messagesContainer.querySelector(".ai-msg-assistant:last-child .ai-msg-content");
       if (lastMsg) {
         lastMsg.innerHTML = renderMarkdown(responseText);
+        linkifyFilePaths(lastMsg as HTMLElement);
       }
 
       // Detect plan responses — show "Press Enter to execute"
@@ -1072,6 +1074,33 @@ async function checkProvider(statusEl: HTMLElement, provider: string) {
     statusEl.className = "ai-status error";
     statusEl.title = String(err);
   }
+}
+
+/** Make file paths in <code> elements clickable to open in editor */
+function linkifyFilePaths(container: HTMLElement) {
+  // Match inline <code> elements (not inside <pre>)
+  container.querySelectorAll("code").forEach((codeEl) => {
+    if (codeEl.closest("pre")) return; // Skip code blocks
+    if (codeEl.querySelector("a")) return; // Already linkified
+
+    const text = codeEl.textContent || "";
+    // Match file-like paths: has a / or . extension, common code extensions
+    const isFilePath = /^[\w.\-\/\\]+\.\w{1,10}$/.test(text) && text.includes(".");
+    if (!isFilePath) return;
+
+    // Check if it looks like a real file path (has a known extension)
+    const ext = text.split(".").pop()?.toLowerCase() || "";
+    const codeExts = ["ts", "tsx", "js", "jsx", "go", "rs", "py", "rb", "java", "c", "h", "cpp", "hpp",
+      "css", "scss", "html", "json", "toml", "yaml", "yml", "md", "sh", "bash", "zig", "vue", "svelte",
+      "sql", "proto", "xml", "env", "lock", "mod", "sum", "txt", "cfg", "conf", "dockerfile"];
+    if (!codeExts.includes(ext) && !text.includes("/")) return;
+
+    codeEl.classList.add("file-link");
+    codeEl.title = `Open ${text}`;
+    codeEl.addEventListener("click", () => {
+      window.dispatchEvent(new CustomEvent("zauri-open-file", { detail: { path: text } }));
+    });
+  });
 }
 
 function renderMarkdown(text: string): string {

@@ -1205,6 +1205,17 @@ body {
   font-style: italic;
 }
 
+.ai-msg-content code.file-link {
+  cursor: pointer;
+  border-bottom: 1px dashed var(--accent);
+  transition: all 0.15s;
+}
+
+.ai-msg-content code.file-link:hover {
+  background: rgba(168, 130, 255, 0.2);
+  color: var(--accent-light);
+}
+
 .ai-msg-content code {
   background: rgba(168, 85, 247, 0.1);
   padding: 1px 5px;
