@@ -59,7 +59,7 @@ export function createAIPanel(): HTMLElement {
     <div id="ai-input-area">
       <div id="ai-context-bar"></div>
       <div id="ai-composer">
-        <textarea id="ai-input" placeholder="Ask about your code..." rows="3"></textarea>
+        <textarea id="ai-input" placeholder="Ask about your code... (try /init)" rows="3"></textarea>
         <button id="ai-send" title="Send (Enter)">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
             <path d="M6 4l5 4-5 4" fill="currentColor"/>
@@ -474,7 +474,7 @@ export function initAIPanel(
       // If there's a pending plan and input is empty, execute it
       if (pendingPlan && input.value.trim() === "") {
         input.value = `PLEASE IMPLEMENT THIS PLAN:\n${pendingPlan}`;
-        input.placeholder = "Ask about your code...";
+        input.placeholder = "Ask about your code... (try /init)";
         pendingPlan = null;
         const planHint = document.getElementById("plan-execute-hint");
         if (planHint) planHint.remove();
@@ -997,9 +997,47 @@ export function initAIPanel(
   });
 
   let isSending = false;
+  let projectContext: string | null = null; // Loaded via /init
+
+  async function handleSlashInit() {
+    const root = getRootPath();
+    if (!root) {
+      const errMsg = createMessageEl("system", "No project folder open. Open a folder first.");
+      messagesContainer.appendChild(errMsg);
+      return;
+    }
+    try {
+      const context: string = await invoke("read_project_context", { workingDir: root });
+      projectContext = context;
+      const sysMsg = createMessageEl("system", `Project context loaded (CLAUDE.md). ${context.length} chars injected into future prompts.`);
+      messagesContainer.appendChild(sysMsg);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    } catch (e) {
+      const errMsg = createMessageEl("system", String(e));
+      messagesContainer.appendChild(errMsg);
+    }
+  }
+
   function sendMessage() {
     const text = input.value.trim();
     if (!text || isStreaming || isSending) return;
+
+    // Handle slash commands
+    if (text.startsWith("/")) {
+      const cmd = text.split(" ")[0].toLowerCase();
+      if (cmd === "/init") {
+        input.value = "";
+        handleSlashInit();
+        return;
+      } else if (cmd === "/clear") {
+        input.value = "";
+        messagesContainer.innerHTML = "";
+        messages.length = 0;
+        currentStreamContent = "";
+        return;
+      }
+    }
+
     isSending = true;
 
     // Add user message
@@ -1031,7 +1069,7 @@ export function initAIPanel(
     const permVal = (panel.querySelector("#ai-permission-btn") as HTMLElement)?.dataset.value || "default";
 
     invoke("ai_chat", {
-      prompt: text,
+      prompt: projectContext ? `${projectContext}\n\n${text}` : text,
       workingDir: rootPath,
       contextFiles: openFiles,
       provider: currentProvider,

@@ -493,18 +493,6 @@ fn ai_chat(
     // Build context from open files
     let mut full_prompt = String::new();
 
-    // Auto-inject CLAUDE.md if it exists in the project root
-    for filename in &["CLAUDE.md", "claude.md", "AGENTS.md"] {
-        let claude_md_path = std::path::Path::new(&working_dir).join(filename);
-        if let Ok(content) = std::fs::read_to_string(&claude_md_path) {
-            full_prompt.push_str(&format!(
-                "## Project Context (from {})\n{}\n\n",
-                filename, content
-            ));
-            break; // Only include the first one found
-        }
-    }
-
     if !context_files.is_empty() {
         full_prompt.push_str("I have these files open in my editor:\n\n");
         for file_path in &context_files {
@@ -1083,6 +1071,18 @@ fn ai_cancel() -> Result<(), String> {
 }
 
 #[tauri::command]
+#[tauri::command]
+fn read_project_context(working_dir: String) -> Result<String, String> {
+    for filename in &["CLAUDE.md", "claude.md", "AGENTS.md"] {
+        let path = std::path::Path::new(&working_dir).join(filename);
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            return Ok(format!("## Project Context (from {})\n{}", filename, content));
+        }
+    }
+    Err("No CLAUDE.md, claude.md, or AGENTS.md found in project root.".to_string())
+}
+
+#[tauri::command]
 fn get_startup_time() -> f64 {
     let pid = std::process::id();
     eprintln!("[perf] startup check for pid {}", pid);
@@ -1128,6 +1128,7 @@ pub fn run() {
             lsp::lsp_shutdown,
             lsp::lsp_key_for_file,
             lsp::lsp_ensure_for_file,
+            read_project_context,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
