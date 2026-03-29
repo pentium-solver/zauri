@@ -33,9 +33,16 @@ export interface ThreadMessage {
   timestamp: number;
 }
 
+export interface SessionState {
+  rootPath: string | null;
+  openFiles: string[]; // file paths of open tabs
+  activeFile: string | null;
+}
+
 export interface ProjectStore {
   projects: Project[];
   threads: Thread[];
+  session?: SessionState;
 }
 
 let store: ProjectStore = { projects: [], threads: [] };
@@ -212,6 +219,19 @@ export async function addMessageToThread(threadId: string, role: "user" | "assis
     }
     await saveStore();
   }
+}
+
+// ---- Time formatting ----
+
+// ---- Session Persistence ----
+
+export async function saveSession(rootPath: string | null, openFiles: string[], activeFile: string | null) {
+  store.session = { rootPath, openFiles, activeFile };
+  await saveStore();
+}
+
+export function getSession(): SessionState | null {
+  return store.session || null;
 }
 
 // ---- Time formatting ----

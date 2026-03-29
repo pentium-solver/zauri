@@ -22,6 +22,8 @@ import {
   setThreadSessionId,
   getThreadSessionId,
   onStoreChange,
+  saveSession,
+  getSession,
   timeAgo,
   type Thread,
 } from "./projects";
@@ -323,6 +325,8 @@ function renderTabs() {
     tabEl.addEventListener("click", () => switchTab(path));
     tabBar.appendChild(tabEl);
   }
+  // Persist session
+  saveSession(rootPath, Array.from(tabs.keys()), activeTabPath);
 }
 
 function switchTab(path: string) {
@@ -999,8 +1003,31 @@ setupResize(document.getElementById("terminal-resize"), terminalPanelEl, "y", tr
 // Revert button
 document.getElementById("status-revert")?.addEventListener("click", revertLast);
 
-// Load projects on startup
-loadProjects().then(() => renderProjects());
+// Load projects and restore session on startup
+loadProjects().then(async () => {
+  renderProjects();
+  // Restore previous session
+  const session = getSession();
+  if (session?.rootPath) {
+    rootPath = session.rootPath;
+    fileTree.innerHTML = "";
+    await loadDirectory(session.rootPath, fileTree);
+    refreshStatus();
+    // Reopen files
+    if (session.openFiles?.length) {
+      for (const filePath of session.openFiles) {
+        const name = filePath.split("/").pop() || filePath;
+        try {
+          await openFile(filePath, name);
+        } catch { /* file may not exist anymore */ }
+      }
+      // Switch to last active file
+      if (session.activeFile && tabs.has(session.activeFile)) {
+        switchTab(session.activeFile);
+      }
+    }
+  }
+});
 
 // Listen for thread fork events from AI panel
 window.addEventListener("zauri-switch-thread", ((e: CustomEvent) => {
