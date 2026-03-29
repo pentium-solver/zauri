@@ -137,10 +137,52 @@ jobs:
       - name: List artifacts
         run: find artifacts -type f | sort
 
+      - name: Generate latest.json for updater
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          REPO="pentium-solver/zauri"
+          TAG="${GITHUB_REF_NAME}"
+          BASE="https://github.com/${REPO}/releases/download/${TAG}"
+
+          # Read signatures
+          MAC_SIG=$(cat artifacts/**/Zauri.app.tar.gz.sig 2>/dev/null || echo "")
+          LINUX_SIG=$(cat artifacts/**/*.AppImage.sig 2>/dev/null || echo "")
+          WIN_MSI_SIG=$(cat artifacts/**/*.msi.sig 2>/dev/null || echo "")
+
+          # Find artifact filenames
+          MAC_TAR=$(find artifacts -name "*.app.tar.gz" ! -name "*.sig" | head -1 | xargs basename 2>/dev/null || echo "")
+          LINUX_APPIMAGE=$(find artifacts -name "*.AppImage" ! -name "*.sig" | head -1 | xargs basename 2>/dev/null || echo "")
+          WIN_MSI=$(find artifacts -name "*.msi" ! -name "*.sig" | head -1 | xargs basename 2>/dev/null || echo "")
+
+          cat > artifacts/latest.json << ENDJSON
+          {
+            "version": "${VERSION}",
+            "notes": "Zauri ${TAG}",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+              "darwin-aarch64": {
+                "signature": "${MAC_SIG}",
+                "url": "${BASE}/${MAC_TAR}"
+              },
+              "linux-x86_64": {
+                "signature": "${LINUX_SIG}",
+                "url": "${BASE}/${LINUX_APPIMAGE}"
+              },
+              "windows-x86_64": {
+                "signature": "${WIN_MSI_SIG}",
+                "url": "${BASE}/${WIN_MSI}"
+              }
+            }
+          }
+          ENDJSON
+
+          echo "Generated latest.json:"
+          cat artifacts/latest.json
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          draft: true
+          draft: false
           generate_release_notes: true
           files: |
             artifacts/**/*.dmg
