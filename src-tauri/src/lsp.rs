@@ -68,21 +68,13 @@ pub fn lsp_spawn(
 
     eprintln!("[lsp] Spawning {} {} for {} in {}", cmd, args.join(" "), language, working_dir);
 
-    // Build PATH with common tool locations
-    let home = std::env::var("HOME").unwrap_or_default();
-    let current_path = std::env::var("PATH").unwrap_or_default();
-    let extended_path = format!(
-        "{}:{}/go/bin:{}/.cargo/bin:{}/.local/bin:{}/.bun/bin:/usr/local/bin:/opt/homebrew/bin",
-        current_path, home, home, home, home
-    );
-
     let mut child = Command::new(&cmd)
         .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .current_dir(&working_dir)
-        .env("PATH", &extended_path)
+        .env("PATH", crate::extended_path())
         .spawn()
         .map_err(|e| format!("Failed to spawn {}: {}. Is it installed?", cmd, e))?;
 

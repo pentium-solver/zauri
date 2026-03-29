@@ -219,10 +219,22 @@ fn save_settings(data: String) -> Result<(), String> {
 
 // ---- Git Operations ----
 
+/// Build extended PATH that includes common tool install locations.
+/// Needed because bundled .app doesn't inherit shell PATH.
+fn extended_path() -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let current = std::env::var("PATH").unwrap_or_default();
+    format!(
+        "{}:{}/go/bin:{}/.cargo/bin:{}/.local/bin:{}/.bun/bin:/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin",
+        current, home, home, home, home
+    )
+}
+
 fn run_git(working_dir: &str, args: &[&str]) -> Result<String, String> {
     let output = Command::new("git")
         .args(args)
         .current_dir(working_dir)
+        .env("PATH", extended_path())
         .output()
         .map_err(|e| format!("Failed to run git: {}", e))?;
 
@@ -396,6 +408,7 @@ fn git_create_pr(working_dir: String, title: String) -> Result<String, String> {
     let output = Command::new("gh")
         .args(["pr", "create", "--title", &title, "--body", "", "--fill"])
         .current_dir(&working_dir)
+        .env("PATH", extended_path())
         .output()
         .map_err(|e| format!("gh CLI not found: {}. Install with: brew install gh", e))?;
 
@@ -432,6 +445,7 @@ fn check_ai_provider(provider: String) -> Result<String, String> {
 
     let output = Command::new(cmd)
         .args(args)
+        .env("PATH", extended_path())
         .output()
         .map_err(|e| format!("{} CLI not found: {}", provider, e))?;
 
@@ -577,6 +591,7 @@ fn ai_chat(
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .current_dir(&working_dir)
+            .env("PATH", extended_path())
             .spawn();
 
         match result {
