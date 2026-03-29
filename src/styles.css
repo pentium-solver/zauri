@@ -2923,6 +2923,57 @@ body {
   border-color: var(--accent);
 }
 
+/* ═══════════════════════ Update Banner ═══════════════════════ */
+.update-banner {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-elevated);
+  border: 0.5px solid rgba(168, 130, 255, 0.25);
+  border-radius: 10px;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  z-index: 5000;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.update-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.update-btn {
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 0.5px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.update-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.update-btn.primary {
+  background: rgba(168, 130, 255, 0.15);
+  border-color: rgba(168, 130, 255, 0.3);
+  color: var(--accent-light);
+}
+
+.update-btn.primary:hover {
+  background: rgba(168, 130, 255, 0.25);
+}
+
 /* ═══════════════════════ Animations ═══════════════════════ */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(6px); }

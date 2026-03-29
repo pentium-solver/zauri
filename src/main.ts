@@ -12,6 +12,7 @@ import { createTerminalPanel, initTerminal, toggleTerminal } from "./terminal";
 import { initGitStatus, showBranchSelector, toggleGitPanel, refreshStatus } from "./git";
 import { loadSettingsFromDisk, showSettings } from "./settings";
 import { showAbout } from "./about";
+import { checkForUpdates } from "./updater";
 import {
   loadProjects,
   createProject,
@@ -1087,4 +1088,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const loadTime = performance.now() - startTime;
   statusPerf.textContent = `Ready in ${loadTime.toFixed(0)}ms`;
   console.log(`[perf] Frontend DOM ready: ${loadTime.toFixed(1)}ms`);
+
+  // Check for updates after a short delay
+  setTimeout(() => checkForUpdates(), 3000);
 });
