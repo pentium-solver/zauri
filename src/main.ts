@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView, keymap, drawSelection, rectangularSelection, crosshairCursor } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
 import { basicSetup } from "codemirror";
 import { oneDark } from "@codemirror/theme-one-dark";
@@ -13,6 +13,8 @@ import { initGitStatus, showBranchSelector, toggleGitPanel, refreshStatus } from
 import { loadSettingsFromDisk, showSettings } from "./settings";
 import { showAbout } from "./about";
 import { checkForUpdates } from "./updater";
+import { registerCommands, showCommandPalette } from "./command-palette";
+import { isPreviewable, showPreview, updatePreviewContent, hidePreview, isPreviewOpen, getPreviewPath } from "./preview";
 import {
   loadProjects,
   createProject,
@@ -116,6 +118,10 @@ function createEditorState(content: string, filename: string): EditorState {
       oneDark,
       zauriTheme,
       keymap.of(searchKeymap),
+      drawSelection(),
+      rectangularSelection(),
+      crosshairCursor(),
+      EditorState.allowMultipleSelections.of(true),
       getLanguageExtension(filename),
       diffExtension,
       lspExtensions((uri, line) => {
@@ -449,6 +455,13 @@ async function openFile(path: string, name: string) {
     if (editorView && rootPath) {
       connectLsp(editorView, path, rootPath, content);
     }
+
+    // Auto-preview HTML files
+    if (isPreviewable(name)) {
+      showPreview(path, content);
+    } else if (isPreviewOpen() && getPreviewPath() !== path) {
+      // Keep preview if switching between files
+    }
   } catch (err) {
     console.error("Failed to open file:", err);
     statusPerf.textContent = `Error: ${err}`;
@@ -470,6 +483,11 @@ async function saveCurrentFile() {
     tab.content = content;
     tab.modified = false;
     renderTabs();
+
+    // Live-reload preview if this file is being previewed
+    if (isPreviewOpen() && getPreviewPath() === activeTabPath) {
+      updatePreviewContent(content);
+    }
 
     statusPerf.textContent = `Saved in ${(t1 - t0).toFixed(1)}ms`;
   } catch (err) {
@@ -586,6 +604,9 @@ document.addEventListener("keydown", (e) => {
   } else if (mod && e.key === "o") {
     e.preventDefault();
     openFolder();
+  } else if (mod && e.shiftKey && (e.key === "P" || e.key === "p")) {
+    e.preventDefault();
+    showCommandPalette();
   } else if (mod && e.shiftKey && (e.key === "F" || e.key === "f")) {
     e.preventDefault();
     toggleSearch();
@@ -1095,4 +1116,26 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Check for updates after a short delay
   setTimeout(() => checkForUpdates(), 3000);
+
+  // Register command palette commands
+  registerCommands([
+    { id: "file.open", label: "Open Folder", shortcut: "Cmd+O", category: "File", action: openFolder },
+    { id: "file.save", label: "Save File", shortcut: "Cmd+S", category: "File", action: saveCurrentFile },
+    { id: "file.close", label: "Close Tab", shortcut: "Cmd+W", category: "File", action: () => { if (activeTabPath) closeTab(activeTabPath); } },
+    { id: "view.terminal", label: "Toggle Terminal", shortcut: "Cmd+`", category: "View", action: toggleTerminal },
+    { id: "view.ai", label: "Toggle AI Assistant", shortcut: "Cmd+L", category: "View", action: toggleAIPanel },
+    { id: "view.search", label: "Search in Files", shortcut: "Cmd+Shift+F", category: "View", action: toggleSearch },
+    { id: "view.settings", label: "Open Settings", shortcut: "Cmd+,", category: "View", action: showSettings },
+    { id: "view.about", label: "About Zauri", category: "View", action: showAbout },
+    { id: "git.panel", label: "Git Actions", shortcut: "Cmd+Shift+G", category: "Git", action: toggleGitPanel },
+    { id: "git.branch", label: "Switch Branch", category: "Git", action: () => showBranchSelector() },
+    { id: "editor.palette", label: "Command Palette", shortcut: "Cmd+Shift+P", category: "Editor", action: showCommandPalette },
+    { id: "view.preview", label: "Toggle Preview", category: "View", action: () => {
+      if (isPreviewOpen()) { hidePreview(); }
+      else if (activeTabPath && editorView) {
+        showPreview(activeTabPath, editorView.state.doc.toString());
+      }
+    }},
+    { id: "editor.updates", label: "Check for Updates", category: "Editor", action: () => checkForUpdates(false) },
+  ]);
 });
