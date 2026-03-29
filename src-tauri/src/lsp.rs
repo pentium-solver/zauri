@@ -68,7 +68,7 @@ pub fn lsp_spawn(
 
     eprintln!("[lsp] Spawning {} {} for {} in {}", cmd, args.join(" "), language, working_dir);
 
-    let mut child = Command::new(&cmd)
+    let mut child = crate::portable_command(&cmd)
         .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

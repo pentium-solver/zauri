@@ -221,17 +221,37 @@ fn save_settings(data: String) -> Result<(), String> {
 
 /// Build extended PATH that includes common tool install locations.
 /// Needed because bundled .app doesn't inherit shell PATH.
+/// Create a Command that works on Windows (wraps through cmd /C for .cmd/.ps1 scripts)
+fn portable_command(program: &str) -> Command {
+    if cfg!(target_os = "windows") {
+        let mut cmd = Command::new("cmd");
+        cmd.args(["/C", program]);
+        cmd
+    } else {
+        Command::new(program)
+    }
+}
+
 fn extended_path() -> String {
-    let home = std::env::var("HOME").unwrap_or_default();
     let current = std::env::var("PATH").unwrap_or_default();
-    format!(
-        "{}:{}/go/bin:{}/.cargo/bin:{}/.local/bin:{}/.bun/bin:/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin",
-        current, home, home, home, home
-    )
+    if cfg!(target_os = "windows") {
+        let userprofile = std::env::var("USERPROFILE").unwrap_or_default();
+        let appdata = std::env::var("APPDATA").unwrap_or_default();
+        format!(
+            "{};{}\\.cargo\\bin;{}\\go\\bin;{}\\npm;{}\\..\\Local\\Programs\\Python;C:\\Program Files\\nodejs",
+            current, userprofile, userprofile, appdata, appdata
+        )
+    } else {
+        let home = std::env::var("HOME").unwrap_or_default();
+        format!(
+            "{}:{}/go/bin:{}/.cargo/bin:{}/.local/bin:{}/.bun/bin:/usr/local/bin:/opt/homebrew/bin:/opt/homebrew/sbin",
+            current, home, home, home, home
+        )
+    }
 }
 
 fn run_git(working_dir: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new("git")
+    let output = portable_command("git")
         .args(args)
         .current_dir(working_dir)
         .env("PATH", extended_path())
@@ -405,12 +425,12 @@ fn git_pull(working_dir: String) -> Result<String, String> {
 #[tauri::command]
 fn git_create_pr(working_dir: String, title: String) -> Result<String, String> {
     // Use gh CLI to create PR
-    let output = Command::new("gh")
+    let output = portable_command("gh")
         .args(["pr", "create", "--title", &title, "--body", "", "--fill"])
         .current_dir(&working_dir)
         .env("PATH", extended_path())
         .output()
-        .map_err(|e| format!("gh CLI not found: {}. Install with: brew install gh", e))?;
+        .map_err(|e| format!("gh CLI not found: {}", e))?;
 
     if output.status.success() {
         let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -443,7 +463,7 @@ fn check_ai_provider(provider: String) -> Result<String, String> {
         _ => return Err(format!("Unknown provider: {}", provider)),
     };
 
-    let output = Command::new(cmd)
+    let output = portable_command(cmd)
         .args(args)
         .env("PATH", extended_path())
         .output()
@@ -606,7 +626,7 @@ fn ai_chat(
         eprintln!("[ai] Running: {} {}", cmd, args.join(" "));
         eprintln!("[ai] Provider: {}, CWD: {}", provider, working_dir);
 
-        let result = Command::new(&cmd)
+        let result = portable_command(&cmd)
             .args(&args)
             .stdin(if use_stdin { Stdio::piped() } else { Stdio::null() })
             .stdout(Stdio::piped())
@@ -1032,9 +1052,15 @@ fn ai_cancel() -> Result<(), String> {
     let mut pid = AI_CHILD_PID.lock().unwrap();
     if let Some(p) = pid.take() {
         eprintln!("[ai] Cancelling process {}", p);
-        let _ = Command::new("kill")
-            .args(["-TERM", &format!("-{}", p)])
-            .output();
+        if cfg!(target_os = "windows") {
+            let _ = Command::new("taskkill")
+                .args(["/F", "/T", "/PID", &p.to_string()])
+                .output();
+        } else {
+            let _ = Command::new("kill")
+                .args(["-TERM", &format!("-{}", p)])
+                .output();
+        }
         Ok(())
     } else {
         Ok(())
