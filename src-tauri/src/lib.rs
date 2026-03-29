@@ -388,6 +388,32 @@ fn git_pull(working_dir: String) -> Result<String, String> {
     run_git(&working_dir, &["pull"])
 }
 
+#[tauri::command]
+fn git_create_pr(working_dir: String, title: String) -> Result<String, String> {
+    // Use gh CLI to create PR
+    let output = Command::new("gh")
+        .args(["pr", "create", "--title", &title, "--body", "", "--fill"])
+        .current_dir(&working_dir)
+        .output()
+        .map_err(|e| format!("gh CLI not found: {}. Install with: brew install gh", e))?;
+
+    if output.status.success() {
+        let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        Ok(if url.is_empty() {
+            "PR created".to_string()
+        } else {
+            format!("PR created: {}", url)
+        })
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(if stderr.is_empty() {
+            "Failed to create PR".to_string()
+        } else {
+            stderr
+        })
+    }
+}
+
 // ---- AI Integration: Claude CLI agent ----
 
 // Track the current AI child process for cancellation
@@ -954,6 +980,7 @@ pub fn run() {
             git_commit,
             git_push,
             git_pull,
+            git_create_pr,
             check_ai_provider,
             ai_chat,
             ai_cancel,

@@ -245,6 +245,16 @@ export function toggleGitPanel() {
           </button>
         </div>
 
+        <div class="git-divider"></div>
+
+        <div class="git-section">
+          <input type="text" id="git-pr-title" class="git-pr-input" placeholder="PR title..." />
+          <button class="git-action-button" id="git-btn-pr" style="width:100%">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><circle cx="5" cy="4" r="2" stroke="currentColor" stroke-width="1.2"/><circle cx="11" cy="12" r="2" stroke="currentColor" stroke-width="1.2"/><path d="M5 6v4a2 2 0 002 2h2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+            Create Pull Request
+          </button>
+        </div>
+
         <div id="git-action-status" class="git-action-status"></div>
       </div>
     </div>
@@ -306,6 +316,22 @@ export function toggleGitPanel() {
     try {
       const result: string = await invoke("git_push", { workingDir: root });
       showStatus(result || "Pushed successfully");
+      await refreshStatus();
+    } catch (e) {
+      showStatus(String(e), true);
+    }
+  });
+
+  gitPanel.querySelector("#git-btn-pr")!.addEventListener("click", async () => {
+    const title = (gitPanel!.querySelector("#git-pr-title") as HTMLInputElement).value.trim();
+    if (!title) return showStatus("Enter a PR title", true);
+    try {
+      // Push first to ensure remote is up to date
+      showStatus("Pushing...");
+      await invoke("git_push", { workingDir: root });
+      showStatus("Creating PR...");
+      const result: string = await invoke("git_create_pr", { workingDir: root, title });
+      showStatus(result);
       await refreshStatus();
     } catch (e) {
       showStatus(String(e), true);

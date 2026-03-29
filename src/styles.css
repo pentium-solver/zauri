@@ -2577,6 +2577,25 @@ body {
   background: rgba(168, 130, 255, 0.2);
 }
 
+.git-pr-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 0.5px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 12px;
+  outline: none;
+  margin-bottom: 10px;
+  transition: border-color 0.2s;
+}
+
+.git-pr-input:focus {
+  border-color: rgba(168, 130, 255, 0.4);
+  box-shadow: 0 0 0 2px rgba(168, 130, 255, 0.08);
+}
+
 .git-action-status {
   margin-top: 10px;
   font-size: 11px;
