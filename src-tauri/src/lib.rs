@@ -1,3 +1,5 @@
+mod lsp;
+
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -988,6 +990,11 @@ pub fn run() {
             terminal_write,
             terminal_resize,
             terminal_exec,
+            lsp::lsp_spawn,
+            lsp::lsp_send,
+            lsp::lsp_shutdown,
+            lsp::lsp_key_for_file,
+            lsp::lsp_ensure_for_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

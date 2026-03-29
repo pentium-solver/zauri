@@ -26,6 +26,8 @@ import {
   type Thread,
 } from "./projects";
 import { diffExtension, activateDiff, clearDiff } from "./diff-decorations";
+import { lspExtensions, connectLsp, notifyChange } from "./lsp-client";
+import { linter } from "@codemirror/lint";
 import {
   type ProposedEdit,
   pendingEdits,
@@ -111,6 +113,22 @@ function createEditorState(content: string, filename: string): EditorState {
       keymap.of(searchKeymap),
       getLanguageExtension(filename),
       diffExtension,
+      lspExtensions((uri, line) => {
+        // Navigate to definition
+        const path = uri.replace("file://", "");
+        const name = path.split("/").pop() || path;
+        openFile(path, name).then(() => {
+          // Jump to line after file opens
+          if (editorView) {
+            const lineInfo = editorView.state.doc.line(Math.min(line, editorView.state.doc.lines));
+            editorView.dispatch({
+              selection: { anchor: lineInfo.from },
+              scrollIntoView: true,
+            });
+          }
+        });
+      }),
+      linter(() => []), // Placeholder — diagnostics pushed by LSP
       EditorView.updateListener.of((update) => {
         if (update.docChanged && activeTabPath) {
           const tab = tabs.get(activeTabPath);
@@ -118,6 +136,8 @@ function createEditorState(content: string, filename: string): EditorState {
             tab.modified = true;
             tab.editorState = update.state;
             renderTabs();
+            // Notify LSP of change
+            notifyChange(update.state.doc.toString());
           }
         }
       }),
@@ -384,6 +404,11 @@ async function openFile(path: string, name: string) {
     statusFile.textContent = path;
     statusPerf.textContent = `Opened in ${(t1 - t0).toFixed(1)}ms`;
     highlightActiveFile();
+
+    // Connect LSP for this file
+    if (editorView && rootPath) {
+      connectLsp(editorView, path, rootPath, content);
+    }
   } catch (err) {
     console.error("Failed to open file:", err);
     statusPerf.textContent = `Error: ${err}`;
