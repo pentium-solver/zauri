@@ -722,6 +722,22 @@ fn ai_chat(
                                         "duration_ms": event.get("duration_ms").and_then(|d| d.as_u64()).unwrap_or(0),
                                     });
                                     let _ = app_handle.emit("ai-usage", usage_data.to_string());
+
+                                    // Check for permission denials
+                                    if let Some(denials) = event.get("permission_denials").and_then(|d| d.as_array()) {
+                                        if !denials.is_empty() {
+                                            let denial_info: Vec<String> = denials.iter().map(|d| {
+                                                let tool = d.get("tool_name").and_then(|t| t.as_str()).unwrap_or("unknown");
+                                                let input = d.get("tool_input").map(|i| i.to_string()).unwrap_or_default();
+                                                format!("{}: {}", tool, input)
+                                            }).collect();
+                                            let _ = app_handle.emit("ai-permission-denied", serde_json::json!({
+                                                "denials": denial_info,
+                                                "count": denials.len(),
+                                            }).to_string());
+                                        }
+                                    }
+
                                     got_result = true;
                                     let _ = app_handle.emit("ai-response-done", "ok");
                                 }

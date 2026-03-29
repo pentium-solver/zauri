@@ -824,6 +824,42 @@ export function initAIPanel(
   });
 
   // Capture session ID for conversation continuity
+  // Handle permission denials — show "Allow & Retry" banner
+  listen<string>("ai-permission-denied", (event) => {
+    try {
+      const data = JSON.parse(event.payload);
+      const banner = document.createElement("div");
+      banner.className = "ai-permission-banner fade-in";
+      banner.innerHTML = `
+        <div class="permission-text">
+          <strong>Permission denied</strong> — ${data.count} action${data.count > 1 ? "s" : ""} blocked
+        </div>
+        <div class="permission-actions">
+          <button class="permission-btn primary" id="perm-retry">Allow & Retry</button>
+          <button class="permission-btn" id="perm-dismiss">Dismiss</button>
+        </div>
+      `;
+      banner.querySelector("#perm-retry")?.addEventListener("click", () => {
+        banner.remove();
+        // Re-send the last user message with auto permission mode
+        const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+        if (lastUserMsg) {
+          // Temporarily override permission to auto
+          const origPerm = (panel.querySelector("#ai-permission-btn") as HTMLElement)?.dataset.value;
+          const permBtn = panel.querySelector("#ai-permission-btn") as HTMLElement;
+          if (permBtn) permBtn.dataset.value = "auto";
+          input.value = lastUserMsg.content;
+          sendMessage();
+          // Restore original permission
+          if (permBtn && origPerm) permBtn.dataset.value = origPerm;
+        }
+      });
+      banner.querySelector("#perm-dismiss")?.addEventListener("click", () => banner.remove());
+      messagesContainer.appendChild(banner);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    } catch { /* ignore */ }
+  });
+
   listen<string>("ai-session-id", (event) => {
     if (event.payload && threadCallbacks) {
       threadCallbacks.saveSessionId(event.payload);
