@@ -833,7 +833,10 @@ function switchToThread(thread: Thread, workspaceRoot: string) {
   }
   // Restore token usage for this thread
   const aiPanel = document.getElementById("ai-panel");
-  if (aiPanel) (aiPanel as any)._restoreUsage?.(thread.id);
+  if (aiPanel) {
+    (aiPanel as any)._restoreUsage?.(thread.id);
+    (aiPanel as any)._updatePlaceholder?.(thread.messages.length > 0);
+  }
 
   // Open the project folder if not already open
   if (rootPath !== workspaceRoot) {

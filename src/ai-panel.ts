@@ -59,7 +59,7 @@ export function createAIPanel(): HTMLElement {
     <div id="ai-input-area">
       <div id="ai-context-bar"></div>
       <div id="ai-composer">
-        <textarea id="ai-input" placeholder="Ask about your code... (try /init)" rows="3"></textarea>
+        <textarea id="ai-input" placeholder="Ask about your code..." rows="3"></textarea>
         <button id="ai-send" title="Send (Enter)">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
             <path d="M6 4l5 4-5 4" fill="currentColor"/>
@@ -474,7 +474,7 @@ export function initAIPanel(
       // If there's a pending plan and input is empty, execute it
       if (pendingPlan && input.value.trim() === "") {
         input.value = `PLEASE IMPLEMENT THIS PLAN:\n${pendingPlan}`;
-        input.placeholder = "Ask about your code... (try /init)";
+        input.placeholder = "Ask about your code...";
         pendingPlan = null;
         const planHint = document.getElementById("plan-execute-hint");
         if (planHint) planHint.remove();
@@ -1119,6 +1119,14 @@ export function initAIPanel(
     totalOutputTokens = usage.outputTokens;
     totalCost = usage.costUsd;
     updateUsageDisplay();
+  };
+
+  (panel as any)._updatePlaceholder = (hasMessages: boolean) => {
+    if (!hasMessages && currentProvider === "claude") {
+      input.placeholder = "Ask about your code... (try /init)";
+    } else {
+      input.placeholder = "Ask about your code...";
+    }
   };
 }
 
