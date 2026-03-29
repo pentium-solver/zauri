@@ -126,7 +126,7 @@ function createEditorState(content: string, filename: string): EditorState {
             const lineInfo = editorView.state.doc.line(Math.min(line, editorView.state.doc.lines));
             editorView.dispatch({
               selection: { anchor: lineInfo.from },
-              scrollIntoView: true,
+              effects: EditorView.scrollIntoView(lineInfo.from, { y: "center" }),
             });
           }
         });
