@@ -847,7 +847,7 @@ export function initAIPanel(
           // Temporarily override permission to auto
           const origPerm = (panel.querySelector("#ai-permission-btn") as HTMLElement)?.dataset.value;
           const permBtn = panel.querySelector("#ai-permission-btn") as HTMLElement;
-          if (permBtn) permBtn.dataset.value = "auto";
+          if (permBtn) permBtn.dataset.value = "bypassPermissions";
           input.value = lastUserMsg.content;
           sendMessage();
           // Restore original permission
