@@ -426,6 +426,7 @@ fn ai_chat(
     session_id: Option<String>,
     model: Option<String>,
     permission_mode: Option<String>,
+    stream_thinking: Option<bool>,
 ) -> Result<(), String> {
     // Build context from open files
     let mut full_prompt = String::new();
@@ -475,6 +476,7 @@ fn ai_chat(
 
     // Spawn AI CLI in a thread to avoid blocking
     let app_handle = app.clone();
+    let want_thinking = stream_thinking.unwrap_or(false);
     std::thread::spawn(move || {
         // Claude CLI --print --output-format stream-json sends JSON lines:
         //   {type:"system"} -> init
@@ -602,13 +604,21 @@ fn ai_chat(
                                         .and_then(|t| t.as_str());
 
                                     if inner_type == Some("content_block_delta") {
-                                        if let Some(text) = event
-                                            .get("event")
-                                            .and_then(|e| e.get("delta"))
-                                            .and_then(|d| d.get("text"))
-                                            .and_then(|t| t.as_str())
-                                        {
-                                            let _ = app_handle.emit("ai-response-chunk", text);
+                                        let delta = event.get("event").and_then(|e| e.get("delta"));
+                                        let delta_type = delta.and_then(|d| d.get("type")).and_then(|t| t.as_str());
+
+                                        match delta_type {
+                                            Some("text_delta") => {
+                                                if let Some(text) = delta.and_then(|d| d.get("text")).and_then(|t| t.as_str()) {
+                                                    let _ = app_handle.emit("ai-response-chunk", text);
+                                                }
+                                            }
+                                            Some("thinking_delta") if want_thinking => {
+                                                if let Some(text) = delta.and_then(|d| d.get("thinking")).and_then(|t| t.as_str()) {
+                                                    let _ = app_handle.emit("ai-thinking-chunk", text);
+                                                }
+                                            }
+                                            _ => {}
                                         }
                                     }
                                 }

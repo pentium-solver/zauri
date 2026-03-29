@@ -1486,6 +1486,83 @@ body {
   background: rgba(168, 130, 255, 0.2);
 }
 
+/* ═══════════════════════ Inline Loading Dots ═══════════════════════ */
+.inline-loading-dots {
+  display: inline-flex;
+  gap: 3px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.inline-loading-dots span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: dotPulse 1.4s ease-in-out infinite;
+}
+
+.inline-loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+.inline-loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+/* ═══════════════════════ Thinking Block ═══════════════════════ */
+.ai-thinking-block {
+  margin-bottom: 6px;
+  border: 0.5px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.ai-thinking-summary {
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.ai-thinking-summary:hover {
+  color: var(--text-muted);
+}
+
+.ai-thinking-content {
+  padding: 6px 8px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  line-height: 1.5;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+
+/* ═══════════════════════ Toolbar Toggle ═══════════════════════ */
+.ai-toolbar-toggle {
+  background: none;
+  border: 0.5px solid transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ai-toolbar-toggle:hover {
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ai-toolbar-toggle.active {
+  color: var(--accent-light);
+  background: rgba(168, 130, 255, 0.1);
+  border-color: rgba(168, 130, 255, 0.2);
+}
+
 /* ═══════════════════════ AI Usage Bar ═══════════════════════ */
 #ai-usage-bar {
   display: flex;

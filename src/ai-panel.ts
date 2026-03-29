@@ -87,6 +87,8 @@ export function createAIPanel(): HTMLElement {
         <button class="ai-toolbar-dropdown-btn" id="ai-model-btn" data-value="claude-opus-4-6[1m]">Opus 4.6 [1M] <span class="dropdown-caret">&#9662;</span></button>
         <div class="ai-toolbar-sep"></div>
         <button class="ai-toolbar-dropdown-btn" id="ai-permission-btn" data-value="default">Default <span class="dropdown-caret">&#9662;</span></button>
+        <div class="ai-toolbar-sep"></div>
+        <button class="ai-toolbar-toggle" id="ai-thinking-btn" data-enabled="false" title="Stream thinking tokens">Think</button>
       </div>
       <div id="ai-usage-bar">
         <span id="ai-usage-tokens">0 tokens</span>
@@ -292,6 +294,14 @@ export function initAIPanel(
     container.appendChild(dialog);
     container.scrollTop = container.scrollHeight;
   }
+
+  // Thinking toggle
+  const thinkingBtn = panel.querySelector("#ai-thinking-btn") as HTMLElement;
+  thinkingBtn.addEventListener("click", () => {
+    const enabled = thinkingBtn.dataset.enabled === "true";
+    thinkingBtn.dataset.enabled = enabled ? "false" : "true";
+    thinkingBtn.classList.toggle("active", !enabled);
+  });
 
   // Restore saved AI settings
   const savedSettings = getSettings();
@@ -643,17 +653,77 @@ export function initAIPanel(
     }
   }
 
+  // Gap timer — show inline dots if no tokens for 5s during streaming
+  let gapTimer: ReturnType<typeof setTimeout> | null = null;
+  let inlineDotsEl: HTMLElement | null = null;
+
+  function startGapTimer() {
+    clearGapTimer();
+    gapTimer = setTimeout(() => {
+      if (isStreaming) {
+        const contentEl = messagesContainer.querySelector(".ai-msg-assistant:last-child .ai-msg-content");
+        if (contentEl && !inlineDotsEl) {
+          inlineDotsEl = document.createElement("span");
+          inlineDotsEl.className = "inline-loading-dots";
+          inlineDotsEl.innerHTML = "<span></span><span></span><span></span>";
+          contentEl.appendChild(inlineDotsEl);
+          messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+      }
+    }, 5000);
+  }
+
+  function clearGapTimer() {
+    if (gapTimer) { clearTimeout(gapTimer); gapTimer = null; }
+    if (inlineDotsEl) { inlineDotsEl.remove(); inlineDotsEl = null; }
+  }
+
+  // Listen for thinking tokens (shown in a collapsible block)
+  let thinkingContent = "";
+  listen<string>("ai-thinking-chunk", (event) => {
+    const token = event.payload;
+    if (!token) return;
+
+    clearGapTimer();
+    removeLoading();
+
+    if (!isStreaming) {
+      isStreaming = true;
+      currentStreamContent = "";
+      const msg = createMessageEl("assistant", "");
+      messagesContainer.appendChild(msg);
+    }
+
+    thinkingContent += token;
+    const msgEl = messagesContainer.querySelector(".ai-msg-assistant:last-child");
+    if (msgEl) {
+      let thinkBlock = msgEl.querySelector(".ai-thinking-block") as HTMLElement;
+      if (!thinkBlock) {
+        thinkBlock = document.createElement("details");
+        thinkBlock.className = "ai-thinking-block";
+        thinkBlock.innerHTML = `<summary class="ai-thinking-summary">Thinking...</summary><pre class="ai-thinking-content"></pre>`;
+        const content = msgEl.querySelector(".ai-msg-content");
+        if (content) msgEl.insertBefore(thinkBlock, content);
+        else msgEl.appendChild(thinkBlock);
+      }
+      const pre = thinkBlock.querySelector(".ai-thinking-content");
+      if (pre) pre.textContent = thinkingContent;
+    }
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    startGapTimer();
+  });
+
   // Listen for response text
   listen<string>("ai-response-chunk", (event) => {
     const token = event.payload;
     if (token === null || token === undefined || token === "") return;
 
     removeLoading();
+    clearGapTimer();
 
     if (!isStreaming) {
       isStreaming = true;
       currentStreamContent = "";
-      // Create the message element
       const msg = createMessageEl("assistant", "");
       messagesContainer.appendChild(msg);
     }
@@ -667,6 +737,9 @@ export function initAIPanel(
       contentEl.textContent = currentStreamContent;
     }
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+    // Restart gap timer for next pause
+    startGapTimer();
   });
 
   // Log AI debug messages
@@ -690,7 +763,9 @@ export function initAIPanel(
 
   listen<string>("ai-response-done", (event) => {
     removeLoading();
+    clearGapTimer();
     isStreaming = false;
+    thinkingContent = "";
 
     const responseText = currentStreamContent.trim();
     if (responseText) {
@@ -854,6 +929,7 @@ export function initAIPanel(
       sessionId: threadCallbacks?.getSessionId() || null,
       model: modelVal,
       permissionMode: permVal,
+      streamThinking: thinkingBtn.dataset.enabled === "true",
     }).catch((err) => {
       const errMsg = createMessageEl("system", `Error: ${err}`);
       messagesContainer.appendChild(errMsg);
