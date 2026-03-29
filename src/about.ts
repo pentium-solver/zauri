@@ -22,7 +22,7 @@ export function showAbout() {
     <div class="settings-scroll">
       <div class="about-hero">
         <h1 class="about-logo">Zauri</h1>
-        <span class="about-ver">v0.1.0</span>
+        <span class="about-ver" id="about-version">v0.5.0</span>
         <p class="about-tagline">A lightweight, fast code editor with AI assistance.</p>
       </div>
 
@@ -117,6 +117,14 @@ export function showAbout() {
         </div>
       </div>
 
+      <div class="settings-card">
+        <div class="settings-card-header">
+          <h2>Updates</h2>
+          <p id="about-update-status">Checking for updates...</p>
+        </div>
+        <button class="git-action-button" id="about-check-update" style="width:100%">Check for Updates</button>
+      </div>
+
       <div class="settings-footer">
         <a href="#" id="about-repo-link" class="about-repo-btn">View on GitHub</a>
         <button class="settings-back-btn" id="about-back">&larr; Back</button>
@@ -140,6 +148,47 @@ export function showAbout() {
       window.open("https://github.com/pentium-solver/zauri", "_blank");
     }
   });
+
+  // Update check in about page
+  const updateStatus = page.querySelector("#about-update-status") as HTMLElement;
+  page.querySelector("#about-check-update")!.addEventListener("click", async () => {
+    updateStatus.textContent = "Checking...";
+    try {
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const update = await check();
+      if (update) {
+        updateStatus.textContent = `Update available: v${update.version}`;
+        updateStatus.style.color = "#a882ff";
+      } else {
+        updateStatus.textContent = "You're on the latest version.";
+        updateStatus.style.color = "#34d399";
+      }
+    } catch {
+      updateStatus.textContent = "Could not check for updates.";
+    }
+  });
+
+  // Auto-check on open
+  (async () => {
+    try {
+      const { getVersion } = await import("@tauri-apps/api/app");
+      const ver = await getVersion();
+      const verEl = page.querySelector("#about-version");
+      if (verEl) verEl.textContent = `v${ver}`;
+
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const update = await check();
+      if (update) {
+        updateStatus.textContent = `Update available: v${update.version}`;
+        updateStatus.style.color = "#a882ff";
+      } else {
+        updateStatus.textContent = "You're on the latest version.";
+        updateStatus.style.color = "#34d399";
+      }
+    } catch {
+      updateStatus.textContent = "Could not check for updates.";
+    }
+  })();
 
   container.appendChild(page);
 }

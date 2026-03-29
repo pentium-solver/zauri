@@ -4,15 +4,22 @@ import { check } from "@tauri-apps/plugin-updater";
 
 export async function checkForUpdates(silent = true) {
   try {
-    const update = await check();
-    if (!update) return; // No update available
+    // Don't show duplicate banners
+    if (document.getElementById("update-banner")) return;
 
-    // Show update notification
+    const update = await check();
+    if (!update) {
+      console.log("[updater] Already on latest version");
+      return;
+    }
+
+    console.log(`[updater] Update available: v${update.version}`);
+
     const banner = document.createElement("div");
     banner.id = "update-banner";
     banner.className = "update-banner fade-in";
     banner.innerHTML = `
-      <span>Zauri ${update.version} is available</span>
+      <span>Zauri v${update.version} is available</span>
       <div class="update-actions">
         <button id="update-install" class="update-btn primary">Update & Restart</button>
         <button id="update-dismiss" class="update-btn">Later</button>
@@ -23,7 +30,6 @@ export async function checkForUpdates(silent = true) {
       banner.innerHTML = `<span>Downloading update...</span>`;
       try {
         await update.downloadAndInstall();
-        // Restart the app
         const { relaunch } = await import("@tauri-apps/plugin-process");
         await relaunch();
       } catch (e) {
