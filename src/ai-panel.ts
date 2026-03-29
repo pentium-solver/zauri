@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { marked } from "marked";
 import { parseEditsFromResponse, type ProposedEdit } from "./ai-edits";
 import { getSettings, updateAISettings } from "./settings";
-import { getThreadProvider, setThreadProvider, forkThread } from "./projects";
+import { getThreadProvider, setThreadProvider, forkThread, addThreadUsage, getThreadUsage } from "./projects";
 
 interface ChatMessage {
   role: "user" | "assistant" | "system";
@@ -484,10 +484,16 @@ export function initAIPanel(
   listen<string>("ai-usage", (event) => {
     try {
       const data = JSON.parse(event.payload);
-      totalInputTokens += data.input_tokens || 0;
-      totalOutputTokens += data.output_tokens || 0;
-      totalCost += data.cost_usd || 0;
+      const inTok = data.input_tokens || 0;
+      const outTok = data.output_tokens || 0;
+      const cost = data.cost_usd || 0;
+      totalInputTokens += inTok;
+      totalOutputTokens += outTok;
+      totalCost += cost;
       updateUsageDisplay();
+      // Persist to thread
+      const tid = threadCallbacks?.getActiveThreadId();
+      if (tid) addThreadUsage(tid, inTok, outTok, cost);
     } catch { /* ignore */ }
   });
 
@@ -879,6 +885,13 @@ export function initAIPanel(
 
   // Expose updateContextBar
   (panel as any)._updateContext = updateContextBar;
+  (panel as any)._restoreUsage = (threadId: string) => {
+    const usage = getThreadUsage(threadId);
+    totalInputTokens = usage.inputTokens;
+    totalOutputTokens = usage.outputTokens;
+    totalCost = usage.costUsd;
+    updateUsageDisplay();
+  };
 }
 
 async function checkProvider(statusEl: HTMLElement, provider: string) {

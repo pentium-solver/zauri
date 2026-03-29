@@ -675,6 +675,10 @@ function switchToThread(thread: Thread, workspaceRoot: string) {
       aiMessages.appendChild(el);
     }
   }
+  // Restore token usage for this thread
+  const aiPanel = document.getElementById("ai-panel");
+  if (aiPanel) (aiPanel as any)._restoreUsage?.(thread.id);
+
   // Open the project folder if not already open
   if (rootPath !== workspaceRoot) {
     openProjectFolder(workspaceRoot);

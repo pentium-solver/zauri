@@ -10,6 +10,12 @@ export interface Project {
   createdAt: string;
 }
 
+export interface ThreadUsage {
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+}
+
 export interface Thread {
   id: string;
   projectId: string;
@@ -17,7 +23,8 @@ export interface Thread {
   createdAt: string;
   messages: ThreadMessage[];
   sessionId?: string;
-  provider?: string; // "claude" | "codex" — locked after first message
+  provider?: string;
+  usage?: ThreadUsage;
 }
 
 export interface ThreadMessage {
@@ -175,6 +182,24 @@ export async function forkThread(threadId: string, newProvider: string): Promise
   store.threads.push(forked);
   await saveStore();
   return forked;
+}
+
+export async function addThreadUsage(threadId: string, inputTokens: number, outputTokens: number, costUsd: number) {
+  const thread = store.threads.find((t) => t.id === threadId);
+  if (thread) {
+    if (!thread.usage) {
+      thread.usage = { inputTokens: 0, outputTokens: 0, costUsd: 0 };
+    }
+    thread.usage.inputTokens += inputTokens;
+    thread.usage.outputTokens += outputTokens;
+    thread.usage.costUsd += costUsd;
+    await saveStore();
+  }
+}
+
+export function getThreadUsage(threadId: string): ThreadUsage {
+  const thread = store.threads.find((t) => t.id === threadId);
+  return thread?.usage || { inputTokens: 0, outputTokens: 0, costUsd: 0 };
 }
 
 export async function addMessageToThread(threadId: string, role: "user" | "assistant", content: string) {
