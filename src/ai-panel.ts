@@ -457,6 +457,7 @@ export function initAIPanel(
     } catch { /* ignore */ }
     removeLoading();
     isStreaming = false;
+    isSending = false;
     sendBtn.classList.remove("hidden");
     stopBtn.classList.add("hidden");
     sendBtn.removeAttribute("disabled");
@@ -769,6 +770,7 @@ export function initAIPanel(
     removeLoading();
     clearGapTimer();
     isStreaming = false;
+    isSending = false;
     thinkingContent = "";
 
     const responseText = currentStreamContent.trim();
@@ -893,9 +895,11 @@ export function initAIPanel(
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   });
 
+  let isSending = false;
   function sendMessage() {
     const text = input.value.trim();
-    if (!text || isStreaming) return;
+    if (!text || isStreaming || isSending) return;
+    isSending = true;
 
     // Add user message
     messages.push({ role: "user", content: text, timestamp: Date.now() });

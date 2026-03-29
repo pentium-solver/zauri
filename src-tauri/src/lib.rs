@@ -683,11 +683,34 @@ fn ai_chat(
                                 }
                                 Some("rate_limit_event") => {
                                     if let Some(info) = event.get("rate_limit_info") {
+                                        let status = info.get("status").and_then(|s| s.as_str()).unwrap_or("unknown");
+                                        let resets_at = info.get("resetsAt").and_then(|r| r.as_u64()).unwrap_or(0);
+                                        let limit_type = info.get("rateLimitType").and_then(|t| t.as_str()).unwrap_or("");
+
                                         let _ = app_handle.emit("ai-rate-limit", serde_json::json!({
-                                            "status": info.get("status").and_then(|s| s.as_str()).unwrap_or("unknown"),
-                                            "resets_at": info.get("resetsAt").and_then(|r| r.as_u64()).unwrap_or(0),
-                                            "type": info.get("rateLimitType").and_then(|t| t.as_str()).unwrap_or(""),
+                                            "status": status,
+                                            "resets_at": resets_at,
+                                            "type": limit_type,
                                         }).to_string());
+
+                                        // If rate limited, show error and stop
+                                        if status == "blocked" || status == "rejected" {
+                                            let mins = if resets_at > 0 {
+                                                let now = std::time::SystemTime::now()
+                                                    .duration_since(std::time::UNIX_EPOCH)
+                                                    .unwrap_or_default()
+                                                    .as_secs();
+                                                if resets_at > now { (resets_at - now) / 60 } else { 0 }
+                                            } else { 0 };
+                                            let msg = format!(
+                                                "Rate limit reached ({}). Resets in ~{} minutes.",
+                                                limit_type, mins
+                                            );
+                                            eprintln!("[ai] {}", msg);
+                                            let _ = app_handle.emit("ai-response-chunk", &msg);
+                                            got_result = true;
+                                            let _ = app_handle.emit("ai-response-done", "error");
+                                        }
                                     }
                                 }
 
