@@ -493,6 +493,18 @@ fn ai_chat(
     // Build context from open files
     let mut full_prompt = String::new();
 
+    // Auto-inject CLAUDE.md if it exists in the project root
+    for filename in &["CLAUDE.md", "claude.md", "AGENTS.md"] {
+        let claude_md_path = std::path::Path::new(&working_dir).join(filename);
+        if let Ok(content) = std::fs::read_to_string(&claude_md_path) {
+            full_prompt.push_str(&format!(
+                "## Project Context (from {})\n{}\n\n",
+                filename, content
+            ));
+            break; // Only include the first one found
+        }
+    }
+
     if !context_files.is_empty() {
         full_prompt.push_str("I have these files open in my editor:\n\n");
         for file_path in &context_files {
