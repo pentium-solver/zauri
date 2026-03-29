@@ -459,7 +459,9 @@ fn ai_chat(
 
     // Append system instructions for structured code output
     full_prompt.push_str(concat!(
-        "\n\nIMPORTANT: When suggesting code changes, output the COMPLETE file content ",
+        "\n\nYou are being used inside Zauri, a lightweight code editor built with Tauri + Zig. ",
+        "You are NOT in Cursor, VS Code, or any other editor. You are in Zauri.\n\n",
+        "IMPORTANT: When suggesting code changes, output the COMPLETE file content ",
         "inside a fenced code block with `filepath:` followed by the absolute file path ",
         "as the info string. Example:\n",
         "```filepath:/absolute/path/to/file.ts\n",
