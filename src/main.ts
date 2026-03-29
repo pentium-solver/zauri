@@ -884,12 +884,17 @@ initAIPanel(
 
 // Wire up sidebar buttons
 document.getElementById("search-btn")?.addEventListener("click", toggleSearch);
-document.getElementById("ai-btn")?.addEventListener("click", toggleAIPanel);
-document.getElementById("terminal-btn")?.addEventListener("click", toggleTerminal);
 document.getElementById("settings-btn")?.addEventListener("click", showSettings);
 document.getElementById("status-git-branch")?.addEventListener("click", showBranchSelector);
 
-document.getElementById("about-btn")?.addEventListener("click", showAbout);
+// Sidebar git bar
+document.getElementById("sidebar-branch-btn")?.addEventListener("click", showBranchSelector);
+document.getElementById("sidebar-git-actions-btn")?.addEventListener("click", toggleGitPanel);
+
+// Status bar quick actions
+document.getElementById("status-terminal-btn")?.addEventListener("click", toggleTerminal);
+document.getElementById("status-ai-btn")?.addEventListener("click", toggleAIPanel);
+document.getElementById("status-about-btn")?.addEventListener("click", showAbout);
 
 // ---- Resize handles ----
 function setupResize(

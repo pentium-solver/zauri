@@ -46,12 +46,21 @@ function updateStatusBar() {
   const changesEl = document.getElementById("status-git-changes");
   const syncEl = document.getElementById("status-git-sync");
 
+  // Update sidebar git bar visibility
+  const sidebarGitBar = document.getElementById("sidebar-git-bar");
+  const sidebarBranchName = document.getElementById("sidebar-branch-name");
+
   if (!cachedStatus || !cachedStatus.is_repo) {
     if (branchEl) branchEl.textContent = "";
     if (changesEl) changesEl.textContent = "";
     if (syncEl) syncEl.textContent = "";
+    if (sidebarGitBar) sidebarGitBar.classList.add("hidden");
     return;
   }
+
+  // Show sidebar git bar
+  if (sidebarGitBar) sidebarGitBar.classList.remove("hidden");
+  if (sidebarBranchName) sidebarBranchName.textContent = cachedStatus.branch;
 
   if (branchEl) {
     branchEl.innerHTML = `<svg width="10" height="10" viewBox="0 0 16 16" fill="none" style="vertical-align:-1px;margin-right:3px"><path d="M5 3v6.5a2.5 2.5 0 005 0V8M5 3L3 5M5 3l2 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>${escapeHtml(cachedStatus.branch)}`;

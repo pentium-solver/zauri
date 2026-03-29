@@ -37,14 +37,15 @@ export function createAIPanel(): HTMLElement {
             <path d="M3 4h10M3 8h6M3 12h8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
           </svg>
         </button>
-        <button id="ai-fork-btn" class="ai-header-btn" title="Fork conversation">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+        <button id="ai-fork-btn" class="ai-header-labeled-btn" title="Fork conversation">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
             <path d="M5 3v4a2 2 0 002 2h2a2 2 0 002-2V3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
             <circle cx="5" cy="2.5" r="1.5" stroke="currentColor" stroke-width="1"/>
             <circle cx="11" cy="2.5" r="1.5" stroke="currentColor" stroke-width="1"/>
             <circle cx="8" cy="13" r="1.5" stroke="currentColor" stroke-width="1"/>
             <line x1="8" y1="9" x2="8" y2="11.5" stroke="currentColor" stroke-width="1.3"/>
           </svg>
+          <span>Fork</span>
         </button>
         <button id="ai-close" class="ai-header-btn" title="Close">&times;</button>
       </div>
