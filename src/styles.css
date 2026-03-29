@@ -341,6 +341,26 @@ body {
   margin-left: 8px;
 }
 
+.thread-delete {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 14px;
+  cursor: pointer;
+  opacity: 0;
+  padding: 0 2px;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.thread-item:hover .thread-delete {
+  opacity: 1;
+}
+
+.thread-delete:hover {
+  color: var(--error);
+}
+
 .thread-new {
   color: var(--text-dim);
   font-size: 11px;

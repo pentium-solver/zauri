@@ -18,6 +18,7 @@ import {
   getProjects,
   getThreadsForProject,
   createThread,
+  deleteThread,
   addMessageToThread,
   setThreadSessionId,
   getThreadSessionId,
@@ -151,7 +152,11 @@ function createEditorState(content: string, filename: string): EditorState {
           }
         },
         onAskAI: (selectedText: string) => {
-          toggleAIPanel();
+          // Show AI panel (don't toggle — keep open if already open)
+          const aiPanel = document.getElementById("ai-panel");
+          if (aiPanel?.classList.contains("hidden")) {
+            toggleAIPanel();
+          }
           const input = document.getElementById("ai-input") as HTMLTextAreaElement;
           if (input) {
             input.value = selectedText
@@ -571,7 +576,10 @@ function highlightActiveFile() {
 document.addEventListener("keydown", (e) => {
   const mod = e.metaKey || e.ctrlKey;
 
-  if (mod && e.key === "s") {
+  if (mod && e.key === "w") {
+    e.preventDefault();
+    if (activeTabPath) closeTab(activeTabPath);
+  } else if (mod && e.key === "s") {
     e.preventDefault();
     saveCurrentFile();
   } else if (mod && e.key === "o") {
@@ -684,10 +692,21 @@ function renderProjects() {
       threadEl.innerHTML = `
         <span class="thread-title">${escapeHtml(thread.title)}</span>
         <span class="thread-time">${timeAgo(thread.createdAt)}</span>
+        <button class="thread-delete" title="Delete thread">&times;</button>
       `;
-      threadEl.addEventListener("click", (e) => {
+      threadEl.querySelector(".thread-title")!.addEventListener("click", (e) => {
         e.stopPropagation();
         switchToThread(thread, project.workspaceRoot);
+      });
+      threadEl.querySelector(".thread-delete")!.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        await deleteThread(thread.id);
+        if (activeThreadId === thread.id) {
+          activeThreadId = null;
+          const aiMessages = document.getElementById("ai-messages");
+          if (aiMessages) aiMessages.innerHTML = "";
+        }
+        renderProjects();
       });
       threadList.appendChild(threadEl);
     }
