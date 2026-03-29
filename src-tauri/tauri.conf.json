@@ -13,11 +13,13 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Zauri Editor",
+        "title": "Zauri",
         "width": 1200,
         "height": 800,
         "minWidth": 600,
-        "minHeight": 400
+        "minHeight": 400,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ],
     "security": {

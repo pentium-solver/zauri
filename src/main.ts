@@ -601,8 +601,10 @@ async function openFolder() {
     rootPath = selected;
     fileTree.innerHTML = "";
     await loadDirectory(selected, fileTree);
-    // Auto-create project for this folder
+    // Update titlebar
     const folderName = selected.split("/").pop() || selected;
+    updateTitlebar(folderName);
+    // Auto-create project for this folder
     await createProject(folderName, selected);
     renderProjects();
     refreshStatus();
@@ -617,6 +619,17 @@ async function openProjectFolder(workspaceRoot: string) {
 }
 
 // ---- Highlight active file in tree ----
+function updateTitlebar(projectName?: string) {
+  const el = document.getElementById("titlebar-project");
+  if (el) {
+    if (projectName) {
+      el.textContent = projectName;
+    } else if (rootPath) {
+      el.textContent = rootPath.split("/").pop() || "";
+    }
+  }
+}
+
 function highlightActiveFile() {
   document.querySelectorAll(".tree-item.active").forEach((el) => {
     el.classList.remove("active");
@@ -813,6 +826,10 @@ function switchToThread(thread: Thread, workspaceRoot: string) {
       el.appendChild(body);
       aiMessages.appendChild(el);
     }
+    // Scroll to bottom
+    requestAnimationFrame(() => {
+      aiMessages.scrollTop = aiMessages.scrollHeight;
+    });
   }
   // Restore token usage for this thread
   const aiPanel = document.getElementById("ai-panel");
@@ -1094,6 +1111,7 @@ loadProjects().then(async () => {
   const session = getSession();
   if (session?.rootPath) {
     rootPath = session.rootPath;
+    updateTitlebar();
     fileTree.innerHTML = "";
     await loadDirectory(session.rootPath, fileTree);
     refreshStatus();
