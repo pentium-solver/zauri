@@ -82,6 +82,15 @@ jobs:
       - name: Install frontend dependencies
         run: bun install
 
+      - name: Sync version from git tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Setting version to $VERSION"
+          # Update tauri.conf.json
+          sed -i.bak "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
+          rm -f src-tauri/tauri.conf.json.bak
+          cat src-tauri/tauri.conf.json | grep version
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
