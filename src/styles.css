@@ -2712,6 +2712,79 @@ body {
   color: var(--accent-light);
 }
 
+/* ═══════════════════════ Find/Replace Panel ═══════════════════════ */
+.cm-panel.cm-search {
+  background: var(--bg-elevated) !important;
+  border-bottom: 0.5px solid var(--border) !important;
+  padding: 6px 10px !important;
+  font-family: var(--font-ui) !important;
+  color: var(--text-primary) !important;
+}
+
+.cm-panel.cm-search label {
+  color: var(--text-muted) !important;
+  font-size: 12px !important;
+}
+
+.cm-panel.cm-search input,
+.cm-panel.cm-search [type="checkbox"] {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 0.5px solid var(--border) !important;
+  border-radius: 4px !important;
+  color: var(--text-primary) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 12px !important;
+  padding: 3px 6px !important;
+  outline: none !important;
+}
+
+.cm-panel.cm-search input:focus {
+  border-color: rgba(168, 130, 255, 0.4) !important;
+  box-shadow: 0 0 0 2px rgba(168, 130, 255, 0.1) !important;
+}
+
+.cm-panel.cm-search button {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 0.5px solid var(--border) !important;
+  border-radius: 4px !important;
+  color: var(--text-muted) !important;
+  font-family: var(--font-ui) !important;
+  font-size: 11px !important;
+  padding: 3px 8px !important;
+  cursor: pointer !important;
+  transition: all 0.15s !important;
+}
+
+.cm-panel.cm-search button:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: var(--text-primary) !important;
+}
+
+.cm-panel.cm-search button[name="close"] {
+  color: var(--text-dim) !important;
+  font-size: 16px !important;
+}
+
+.cm-panel.cm-search br {
+  display: none !important;
+}
+
+.cm-searchMatch {
+  background: rgba(168, 130, 255, 0.2) !important;
+  border-radius: 2px;
+}
+
+.cm-searchMatch-selected {
+  background: rgba(168, 130, 255, 0.4) !important;
+}
+
+/* ═══════════════════════ Cmd+Click Symbol Highlight ═══════════════════════ */
+.cm-symbol-highlight {
+  background: rgba(168, 130, 255, 0.15);
+  border-bottom: 1px solid var(--accent);
+  cursor: pointer;
+}
+
 /* ═══════════════════════ Context Menu ═══════════════════════ */
 .context-menu {
   position: fixed;

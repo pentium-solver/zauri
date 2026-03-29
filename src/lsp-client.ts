@@ -279,8 +279,28 @@ const lspHoverTooltip = hoverTooltip(async (view: EditorView, pos: number) => {
   };
 });
 
-// Cmd+Click go-to-definition
+// Cmd+Click go-to-definition with symbol highlighting
 let onNavigate: ((uri: string, line: number) => void) | null = null;
+import { Decoration, type DecorationSet } from "@codemirror/view";
+import { StateEffect, StateField } from "@codemirror/state";
+
+const setHighlight = StateEffect.define<{ from: number; to: number } | null>();
+
+const symbolHighlightField = StateField.define<DecorationSet>({
+  create() { return Decoration.none; },
+  update(deco, tr) {
+    for (const e of tr.effects) {
+      if (e.is(setHighlight)) {
+        if (e.value === null) return Decoration.none;
+        return Decoration.set([
+          Decoration.mark({ class: "cm-symbol-highlight" }).range(e.value.from, e.value.to),
+        ]);
+      }
+    }
+    return deco;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
 
 const cmdClickHandler = EditorView.domEventHandlers({
   click(event, view) {
@@ -289,6 +309,16 @@ const cmdClickHandler = EditorView.domEventHandlers({
 
     const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
     if (pos === null) return false;
+
+    // Highlight the word under cursor
+    const word = view.state.wordAt(pos);
+    if (word) {
+      view.dispatch({ effects: setHighlight.of({ from: word.from, to: word.to }) });
+      // Clear highlight after navigation
+      setTimeout(() => {
+        view.dispatch({ effects: setHighlight.of(null) });
+      }, 1500);
+    }
 
     event.preventDefault();
     goToDefinition(view, pos).then((loc) => {
@@ -300,18 +330,29 @@ const cmdClickHandler = EditorView.domEventHandlers({
   },
 });
 
-// Cmd+Click cursor style
+// Cmd hover: highlight symbol + pointer cursor
 const cmdClickCursor = EditorView.domEventHandlers({
   mousemove(event, view) {
-    const el = view.dom;
     if (event.metaKey || event.ctrlKey) {
-      el.style.cursor = "pointer";
+      view.dom.style.cursor = "pointer";
+      // Highlight word under mouse
+      const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+      if (pos !== null) {
+        const word = view.state.wordAt(pos);
+        if (word) {
+          view.dispatch({ effects: setHighlight.of({ from: word.from, to: word.to }) });
+          return;
+        }
+      }
     } else {
-      el.style.cursor = "";
+      view.dom.style.cursor = "";
     }
+    // Clear highlight when not hovering a word or no modifier
+    view.dispatch({ effects: setHighlight.of(null) });
   },
   mouseleave(_event, view) {
     view.dom.style.cursor = "";
+    view.dispatch({ effects: setHighlight.of(null) });
   },
 });
 
@@ -383,6 +424,7 @@ export function lspExtensions(navigateFn: (uri: string, line: number) => void): 
   return [
     autocompletion({ override: [lspCompletionSource] }),
     lspHoverTooltip,
+    symbolHighlightField,
     cmdClickHandler,
     cmdClickCursor,
     renameKeymap,
