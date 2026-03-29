@@ -838,6 +838,22 @@ export function initAIPanel(
     thinkingContent = "";
 
     const responseText = currentStreamContent.trim();
+
+    // Remove empty assistant bubble if no content received
+    if (!responseText) {
+      const emptyMsg = messagesContainer.querySelector(".ai-msg-assistant:last-child");
+      if (emptyMsg) {
+        const content = emptyMsg.querySelector(".ai-msg-content");
+        if (content && !content.textContent?.trim()) {
+          emptyMsg.remove();
+        }
+      }
+      if (event.payload !== "ok") {
+        const errMsg = createMessageEl("system", "No response received. The session may have expired — try sending again.");
+        messagesContainer.appendChild(errMsg);
+      }
+    }
+
     if (responseText) {
       messages.push({
         role: "assistant",
@@ -1024,10 +1040,15 @@ export function initAIPanel(
       permissionMode: permVal,
       streamThinking: thinkingBtn.dataset.enabled === "true",
     }).catch((err) => {
+      removeLoading();
+      isSending = false;
+      isStreaming = false;
       const errMsg = createMessageEl("system", `Error: ${err}`);
       messagesContainer.appendChild(errMsg);
       statusEl.textContent = "Error";
       statusEl.className = "ai-status error";
+      sendBtn.classList.remove("hidden");
+      stopBtn.classList.add("hidden");
       sendBtn.removeAttribute("disabled");
       input.removeAttribute("disabled");
     });
