@@ -599,6 +599,14 @@ body {
   color: var(--error);
 }
 
+.tab.dragging {
+  opacity: 0.4;
+}
+
+.tab.drag-over {
+  border-left: 2px solid var(--accent);
+}
+
 /* ═══════════════════════ Editor ═══════════════════════ */
 #editor-container {
   flex: 1;
@@ -2802,6 +2810,29 @@ body {
 .cm-symbol-highlight {
   background: rgba(168, 130, 255, 0.15);
   border-bottom: 1px solid var(--accent);
+  cursor: pointer;
+}
+
+/* ═══════════════════════ Minimap ═══════════════════════ */
+.minimap-wrapper {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 60px;
+  overflow: hidden;
+  pointer-events: auto;
+  z-index: 5;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.minimap-wrapper:hover {
+  opacity: 1;
+}
+
+.minimap-canvas {
+  width: 60px;
   cursor: pointer;
 }
 

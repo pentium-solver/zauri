@@ -15,6 +15,7 @@ import { showAbout } from "./about";
 import { checkForUpdates } from "./updater";
 import { registerCommands, showCommandPalette } from "./command-palette";
 import { isPreviewable, showPreview, updatePreviewContent, hidePreview, isPreviewOpen, getPreviewPath } from "./preview";
+import { minimapExtension } from "./minimap";
 import {
   loadProjects,
   createProject,
@@ -140,6 +141,7 @@ function createEditorState(content: string, filename: string): EditorState {
         });
       }),
       linter(() => []), // Placeholder — diagnostics pushed by LSP
+      minimapExtension,
       contextMenuExtension({
         onGoToDefinition: () => {
           if (editorView) {
@@ -335,6 +337,43 @@ function renderTabs() {
     tabEl.appendChild(closeEl);
 
     tabEl.addEventListener("click", () => switchTab(path));
+
+    // Drag to reorder
+    tabEl.draggable = true;
+    tabEl.dataset.path = path;
+    tabEl.addEventListener("dragstart", (e) => {
+      e.dataTransfer!.setData("text/plain", path);
+      tabEl.classList.add("dragging");
+    });
+    tabEl.addEventListener("dragend", () => {
+      tabEl.classList.remove("dragging");
+    });
+    tabEl.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      tabEl.classList.add("drag-over");
+    });
+    tabEl.addEventListener("dragleave", () => {
+      tabEl.classList.remove("drag-over");
+    });
+    tabEl.addEventListener("drop", (e) => {
+      e.preventDefault();
+      tabEl.classList.remove("drag-over");
+      const fromPath = e.dataTransfer!.getData("text/plain");
+      if (fromPath && fromPath !== path) {
+        // Reorder tabs map
+        const entries = Array.from(tabs.entries());
+        const fromIdx = entries.findIndex(([p]) => p === fromPath);
+        const toIdx = entries.findIndex(([p]) => p === path);
+        if (fromIdx >= 0 && toIdx >= 0) {
+          const [moved] = entries.splice(fromIdx, 1);
+          entries.splice(toIdx, 0, moved);
+          tabs.clear();
+          for (const [p, t] of entries) tabs.set(p, t);
+          renderTabs();
+        }
+      }
+    });
+
     tabBar.appendChild(tabEl);
   }
   // Persist session
