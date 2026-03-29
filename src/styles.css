@@ -1847,6 +1847,54 @@ body {
   color: var(--text-muted);
 }
 
+/* ═══════════════════════ Live Diff Badges ═══════════════════════ */
+.ai-live-diff {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 4px 8px;
+  background: rgba(168, 130, 255, 0.06);
+  border: 0.5px solid rgba(168, 130, 255, 0.15);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.live-diff-icon {
+  font-size: 11px;
+}
+
+.live-diff-name {
+  color: var(--accent-light);
+  flex: 1;
+}
+
+.live-diff-view {
+  background: none;
+  border: 0.5px solid rgba(168, 130, 255, 0.2);
+  border-radius: 4px;
+  color: var(--accent-light);
+  font-family: inherit;
+  font-size: 10px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.live-diff-view:hover {
+  background: rgba(168, 130, 255, 0.12);
+}
+
+/* ═══════════════════════ Plan Execute Hint ═══════════════════════ */
+.plan-execute-hint {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--accent);
+  text-align: center;
+  border-bottom: 0.5px solid var(--border);
+  background: rgba(168, 130, 255, 0.04);
+}
+
 /* ═══════════════════════ Fork Banner ═══════════════════════ */
 .ai-fork-banner {
   display: flex;

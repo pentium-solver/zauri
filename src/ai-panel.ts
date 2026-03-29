@@ -466,9 +466,19 @@ export function initAIPanel(
     statusEl.textContent = "Cancelled";
     statusEl.className = "ai-status error";
   });
+  let pendingPlan: string | null = null;
+
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
+      // If there's a pending plan and input is empty, execute it
+      if (pendingPlan && input.value.trim() === "") {
+        input.value = `PLEASE IMPLEMENT THIS PLAN:\n${pendingPlan}`;
+        input.placeholder = "Ask about your code...";
+        pendingPlan = null;
+        const planHint = document.getElementById("plan-execute-hint");
+        if (planHint) planHint.remove();
+      }
       sendMessage();
     }
   });
@@ -718,6 +728,9 @@ export function initAIPanel(
     startGapTimer();
   });
 
+  // Progressive markdown rendering flag
+  let markdownRenderPending = false;
+
   // Listen for response text
   listen<string>("ai-response-chunk", (event) => {
     const token = event.payload;
@@ -736,12 +749,62 @@ export function initAIPanel(
     // Append token (preserve whitespace — don't trim!)
     currentStreamContent += token;
 
-    // Update display with raw text during streaming (fast updates)
+    // Progressive markdown rendering — throttled to avoid perf issues
     const contentEl = messagesContainer.querySelector(".ai-msg-assistant:last-child .ai-msg-content");
     if (contentEl) {
-      contentEl.textContent = currentStreamContent;
+      if (!markdownRenderPending) {
+        markdownRenderPending = true;
+        requestAnimationFrame(() => {
+          markdownRenderPending = false;
+          if (contentEl) {
+            contentEl.innerHTML = renderMarkdown(currentStreamContent);
+          }
+          messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+          // Live diff detection — check for filepath: blocks as they stream in
+          if (currentStreamContent.includes("```filepath:") && editCallbacks) {
+            const root = getRootPath();
+            if (root) {
+              // Only process complete blocks (has closing ```)
+              const completeBlockRegex = /```filepath:([\S]+)\n([\s\S]*?)```/g;
+              let match;
+              while ((match = completeBlockRegex.exec(currentStreamContent)) !== null) {
+                const filePath = match[1].startsWith("/") ? match[1] : `${root}/${match[1]}`;
+                const blockId = `live-diff-${filePath}`;
+                // Only show each file's diff once during streaming
+                if (!document.getElementById(blockId)) {
+                  const newContent = match[2];
+                  const originalContent = editCallbacks.getFileContent(filePath) || "";
+                  if (originalContent !== newContent) {
+                    const diffBanner = document.createElement("div");
+                    diffBanner.id = blockId;
+                    diffBanner.className = "ai-live-diff fade-in";
+                    const name = filePath.split("/").pop() || filePath;
+                    diffBanner.innerHTML = `
+                      <span class="live-diff-icon">&#9998;</span>
+                      <span class="live-diff-name">${name}</span>
+                      <button class="live-diff-view" data-path="${filePath}">View Diff</button>
+                    `;
+                    diffBanner.querySelector(".live-diff-view")?.addEventListener("click", () => {
+                      const edit = {
+                        filePath,
+                        newContent,
+                        originalContent,
+                        additions: 0,
+                        deletions: 0,
+                      };
+                      editCallbacks!.showProposedEdit(edit);
+                    });
+                    const msgEl = messagesContainer.querySelector(".ai-msg-assistant:last-child");
+                    if (msgEl) msgEl.appendChild(diffBanner);
+                  }
+                }
+              }
+            }
+          }
+        });
+      }
     }
-    messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
     // Restart gap timer for next pause
     startGapTimer();
@@ -786,6 +849,26 @@ export function initAIPanel(
       const lastMsg = messagesContainer.querySelector(".ai-msg-assistant:last-child .ai-msg-content");
       if (lastMsg) {
         lastMsg.innerHTML = renderMarkdown(responseText);
+      }
+
+      // Detect plan responses — show "Press Enter to execute"
+      const lowerResp = responseText.toLowerCase();
+      const hasPlanIndicators = (
+        (lowerResp.includes("plan") || lowerResp.includes("approach") || lowerResp.includes("implementation")) &&
+        (lowerResp.includes("step") || lowerResp.includes("1.") || lowerResp.includes("phase"))
+      );
+      if (hasPlanIndicators && !responseText.includes("```filepath:")) {
+        pendingPlan = responseText;
+        input.placeholder = "Press Enter to execute plan, or type to modify...";
+        // Show hint
+        const hint = document.createElement("div");
+        hint.id = "plan-execute-hint";
+        hint.className = "plan-execute-hint fade-in";
+        hint.textContent = "Press Enter to execute plan";
+        const inputArea = document.getElementById("ai-input-area");
+        if (inputArea) inputArea.prepend(hint);
+      } else {
+        pendingPlan = null;
       }
 
       // Parse for file edits
