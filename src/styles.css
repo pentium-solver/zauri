@@ -2712,6 +2712,61 @@ body {
   color: var(--accent-light);
 }
 
+/* ═══════════════════════ Context Menu ═══════════════════════ */
+.context-menu {
+  position: fixed;
+  min-width: 200px;
+  background: var(--bg-elevated);
+  border: 0.5px solid var(--border-light);
+  border-radius: 10px;
+  padding: 4px;
+  z-index: 3000;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 0 0.5px rgba(255, 255, 255, 0.05);
+  animation: fadeIn 0.1s ease-out;
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: background 0.1s;
+}
+
+.context-menu-item:hover {
+  background: rgba(168, 130, 255, 0.12);
+}
+
+.context-menu-item.disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.context-menu-item.disabled:hover {
+  background: none;
+}
+
+.context-menu-label {
+  flex: 1;
+}
+
+.context-menu-shortcut {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: 20px;
+  font-family: var(--font-ui);
+}
+
+.context-menu-divider {
+  height: 0.5px;
+  background: var(--border);
+  margin: 4px 8px;
+}
+
 /* ═══════════════════════ LSP ═══════════════════════ */
 .lsp-hover-tooltip {
   background: var(--bg-elevated);

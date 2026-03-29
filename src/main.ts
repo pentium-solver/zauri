@@ -27,6 +27,7 @@ import {
 } from "./projects";
 import { diffExtension, activateDiff, clearDiff } from "./diff-decorations";
 import { lspExtensions, connectLsp, notifyChange } from "./lsp-client";
+import { contextMenuExtension } from "./context-menu";
 import { linter } from "@codemirror/lint";
 import {
   type ProposedEdit,
@@ -129,6 +130,35 @@ function createEditorState(content: string, filename: string): EditorState {
         });
       }),
       linter(() => []), // Placeholder — diagnostics pushed by LSP
+      contextMenuExtension({
+        onGoToDefinition: () => {
+          if (editorView) {
+            editorView.dom.dispatchEvent(new MouseEvent("click", { metaKey: true }));
+          }
+        },
+        onFindReferences: () => {
+          if (editorView) {
+            const event = new KeyboardEvent("keydown", { key: "F12", shiftKey: true });
+            editorView.dom.dispatchEvent(event);
+          }
+        },
+        onRename: () => {
+          if (editorView) {
+            const event = new KeyboardEvent("keydown", { key: "F2" });
+            editorView.dom.dispatchEvent(event);
+          }
+        },
+        onAskAI: (selectedText: string) => {
+          toggleAIPanel();
+          const input = document.getElementById("ai-input") as HTMLTextAreaElement;
+          if (input) {
+            input.value = selectedText
+              ? `Explain this code:\n\n${selectedText}`
+              : "What does this file do?";
+            input.focus();
+          }
+        },
+      }),
       EditorView.updateListener.of((update) => {
         if (update.docChanged && activeTabPath) {
           const tab = tabs.get(activeTabPath);
