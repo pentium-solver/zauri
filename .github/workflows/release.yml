@@ -83,13 +83,17 @@ jobs:
         run: bun install
 
       - name: Sync version from git tag
+        shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           echo "Setting version to $VERSION"
-          # Update tauri.conf.json
-          sed -i.bak "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" src-tauri/tauri.conf.json
-          rm -f src-tauri/tauri.conf.json.bak
-          cat src-tauri/tauri.conf.json | grep version
+          node -e "
+            const fs = require('fs');
+            const conf = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8'));
+            conf.version = '$VERSION';
+            fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(conf, null, 2));
+          "
+          grep version src-tauri/tauri.conf.json
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
