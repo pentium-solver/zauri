@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { marked } from "marked";
 import { parseEditsFromResponse, type ProposedEdit } from "./ai-edits";
-import { getSettings, updateAISettings } from "./settings";
+import { getSettings, patchSettings, updateAISettings } from "./settings";
 import { getThreadProvider, setThreadProvider, forkThread, addThreadUsage, getThreadUsage } from "./projects";
 import { formatShortcut } from "./shortcuts";
 
@@ -170,6 +170,27 @@ export function initAIPanel(
   let currentStreamToolCalls: Map<string, HTMLElement> = new Map();
   let currentThinkingContent = "";
   let lastStreamError: string | null = null;
+
+  function estimateTokens(text: string): number {
+    return Math.ceil(text.length / 4);
+  }
+
+  function getContextWindowEstimate(provider: string, model: string): number {
+    if (provider === "claude") {
+      return model.includes("[1m]") ? 1_000_000 : 200_000;
+    }
+
+    switch (model) {
+      case "gpt-5.4":
+        return 400_000;
+      case "o3":
+        return 200_000;
+      case "o4-mini":
+      case "codex-mini":
+      default:
+        return 128_000;
+    }
+  }
 
   function removePlanHint() {
     document.getElementById("plan-execute-hint")?.remove();
@@ -393,6 +414,7 @@ export function initAIPanel(
         menu.remove();
         // Persist selection
         updateAISettings(currentProvider, modelBtn.dataset.value || "", permBtn.dataset.value || "");
+        updateContextBar();
       });
       menu.appendChild(item);
     }
@@ -457,6 +479,7 @@ export function initAIPanel(
       switchProviderConfig(currentProvider);
       checkProvider(statusEl, currentProvider);
       updateAISettings(currentProvider, modelBtn.dataset.value || "", permBtn.dataset.value || "");
+      updateContextBar();
     });
   });
 
@@ -521,6 +544,7 @@ export function initAIPanel(
     }
   }
   checkProvider(statusEl, currentProvider);
+  panel.style.width = `${Math.max(280, Math.min(800, savedSettings.aiSidebarWidth || 380))}px`;
 
   // Resize handle
   const resizeHandle = document.getElementById("ai-resize-handle")!;
@@ -549,6 +573,7 @@ export function initAIPanel(
       isResizing = false;
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      void patchSettings({ aiSidebarWidth: panel.offsetWidth });
     }
   });
 
@@ -820,6 +845,7 @@ export function initAIPanel(
     `;
     messagesContainer.appendChild(banner);
     messages.length = 0;
+    updateContextBar();
     // Send compact request
     const root = getRootPath() || ".";
     invoke("ai_chat", {
@@ -1239,6 +1265,7 @@ export function initAIPanel(
         timestamp: Date.now(),
       });
       threadCallbacks?.saveMessage("assistant", responseText);
+      updateContextBar();
 
       // Re-render the last message as markdown
       const lastMsg = streamingMsg?.querySelector(".ai-msg-content");
@@ -1305,6 +1332,7 @@ export function initAIPanel(
     currentThinkingContent = "";
     lastStreamError = null;
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    updateContextBar();
   });
 
   let isSending = false;
@@ -1323,6 +1351,7 @@ export function initAIPanel(
       const sysMsg = createMessageEl("system", `Project context loaded (CLAUDE.md). ${context.length} chars injected into future prompts.`);
       messagesContainer.appendChild(sysMsg);
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      updateContextBar();
     } catch (e) {
       const errMsg = createMessageEl("system", String(e));
       messagesContainer.appendChild(errMsg);
@@ -1346,9 +1375,11 @@ export function initAIPanel(
         messages.length = 0;
         currentStreamContent = "";
         currentThinkingContent = "";
+        projectContext = null;
         replyTarget = null;
         updateReplyBar();
         clearPlanHint();
+        updateContextBar();
         return;
       }
     }
@@ -1374,6 +1405,7 @@ export function initAIPanel(
     });
     messagesContainer.appendChild(msg);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    updateContextBar();
 
     // Show loading dots
     showLoading();
@@ -1435,18 +1467,49 @@ export function initAIPanel(
     const activeFile = getActiveFilePath();
     const openFiles = getOpenFilePaths();
 
-    if (openFiles.length === 0) {
+    const threadTokens = messages.reduce((total, message) => total + estimateTokens(message.content), 0);
+    const fileDetails = openFiles.map((filePath) => {
+      const content = editCallbacks?.getFileContent(filePath) || "";
+      return {
+        path: filePath,
+        name: filePath.split("/").pop() || filePath,
+        tokens: estimateTokens(content),
+        active: filePath === activeFile,
+      };
+    });
+    const fileTokens = fileDetails.reduce((total, file) => total + file.tokens, 0);
+    const initTokens = projectContext ? estimateTokens(projectContext) : 0;
+    const totalTokens = threadTokens + fileTokens + initTokens;
+    const modelValue = modelBtn.dataset.value || "";
+    const contextLimit = getContextWindowEstimate(currentProvider, modelValue);
+    const usagePercent = Math.min(100, Math.round((totalTokens / contextLimit) * 100));
+
+    if (openFiles.length === 0 && messages.length === 0 && !projectContext) {
       contextBar.innerHTML = "";
       return;
     }
 
-    const chips = openFiles.map((f) => {
-      const name = f.split("/").pop() || f;
-      const isActive = f === activeFile;
-      return `<span class="context-chip${isActive ? " active" : ""}">${escapeHtml(name)}</span>`;
-    });
+    const fileChips = fileDetails.map((file) =>
+      `<span class="context-chip${file.active ? " active" : ""}">${escapeHtml(file.name)} <span class="context-chip-meta">~${file.tokens.toLocaleString()}</span></span>`,
+    ).join("");
 
-    contextBar.innerHTML = `<span class="context-label">Context:</span>${chips.join("")}`;
+    const metaChips = [
+      `<span class="context-chip subtle">Thread ${messages.length} msg${messages.length === 1 ? "" : "s"} <span class="context-chip-meta">~${threadTokens.toLocaleString()}</span></span>`,
+      projectContext
+        ? `<span class="context-chip subtle">Project context <span class="context-chip-meta">~${initTokens.toLocaleString()}</span></span>`
+        : "",
+    ].filter(Boolean).join("");
+
+    contextBar.innerHTML = `
+      <div class="context-overview">
+        <span class="context-label">Context</span>
+        <span class="context-total">~${totalTokens.toLocaleString()} / ${contextLimit.toLocaleString()} est. tokens</span>
+      </div>
+      <div class="context-meter">
+        <div class="context-meter-fill" style="width:${usagePercent}%"></div>
+      </div>
+      <div class="context-chips">${metaChips}${fileChips}</div>
+    `;
   }
 
   // Expose updateContextBar
@@ -1479,6 +1542,7 @@ export function initAIPanel(
       permBtn.dataset.value = permissionMode;
       permBtn.innerHTML = `${permOpt.label} <span class="dropdown-caret">&#9662;</span>`;
     }
+    updateContextBar();
   };
   (panel as any)._setProvider = (provider: string) => {
     const nextProvider = provider === "codex" ? "codex" : "claude";
@@ -1490,6 +1554,11 @@ export function initAIPanel(
     switchProviderConfig(nextProvider);
     updateReplyBar();
     checkProvider(statusEl, nextProvider);
+    updateContextBar();
+  };
+  (panel as any)._setThreadMessages = (threadMessages: ChatMessage[]) => {
+    messages = threadMessages.map((message) => ({ ...message }));
+    updateContextBar();
   };
 }
 

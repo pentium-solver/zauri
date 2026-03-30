@@ -197,6 +197,50 @@ fn search_files(root_path: String, query: String) -> Result<Vec<SearchMatch>, St
     Ok(matches)
 }
 
+fn should_skip_project_dir(name: &str) -> bool {
+    matches!(name, ".git" | "node_modules" | "dist" | "build" | "target" | ".next")
+}
+
+fn collect_project_files(
+    root: &std::path::Path,
+    current: &std::path::Path,
+    files: &mut Vec<String>,
+) -> Result<(), String> {
+    let entries = std::fs::read_dir(current).map_err(|e| e.to_string())?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        let file_type = entry.file_type().map_err(|e| e.to_string())?;
+
+        if file_type.is_dir() {
+            if should_skip_project_dir(&file_name) {
+                continue;
+            }
+            collect_project_files(root, &path, files)?;
+        } else if file_type.is_file() {
+            let relative = path
+                .strip_prefix(root)
+                .map_err(|e| e.to_string())?
+                .to_string_lossy()
+                .replace('\\', "/");
+            files.push(relative);
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn list_project_files(root_path: String) -> Result<Vec<String>, String> {
+    let root = std::path::Path::new(&root_path);
+    let mut files = Vec::new();
+    collect_project_files(root, root, &mut files)?;
+    files.sort();
+    Ok(files)
+}
+
 // ---- Project Store Persistence ----
 
 fn get_store_path() -> std::path::PathBuf {
@@ -316,6 +360,30 @@ struct GitChangedFile {
     current_content: String,
     additions: usize,
     deletions: usize,
+}
+
+#[derive(Serialize)]
+struct GitFileStatusEntry {
+    path: String,
+    staged_status: String,
+    unstaged_status: String,
+}
+
+fn parse_porcelain_entry(line: &str) -> Option<(char, char, String)> {
+    if line.len() < 3 {
+        return None;
+    }
+
+    let x = line.chars().next()?;
+    let y = line.chars().nth(1)?;
+    let raw_path = line[3..].trim();
+    let path = raw_path
+        .rsplit_once(" -> ")
+        .map(|(_, new_path)| new_path)
+        .unwrap_or(raw_path)
+        .to_string();
+
+    Some((x, y, path))
 }
 
 #[tauri::command]
@@ -444,6 +512,63 @@ fn git_changed_files(working_dir: String) -> Result<Vec<GitChangedFile>, String>
     }
 
     Ok(result)
+}
+
+#[tauri::command]
+fn git_file_statuses(working_dir: String) -> Result<Vec<GitFileStatusEntry>, String> {
+    if run_git(&working_dir, &["rev-parse", "--is-inside-work-tree"]).is_err() {
+        return Ok(Vec::new());
+    }
+
+    let porcelain = run_git(&working_dir, &["status", "--porcelain"]).unwrap_or_default();
+    let mut statuses = Vec::new();
+
+    for line in porcelain.lines() {
+        if let Some((x, y, path)) = parse_porcelain_entry(line) {
+            let staged_status = if x == ' ' { String::new() } else { x.to_string() };
+            let unstaged_status = if y == ' ' { String::new() } else { y.to_string() };
+            statuses.push(GitFileStatusEntry {
+                path,
+                staged_status,
+                unstaged_status,
+            });
+        }
+    }
+
+    statuses.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(statuses)
+}
+
+#[tauri::command]
+fn git_stage_file(working_dir: String, path: String) -> Result<(), String> {
+    run_git(&working_dir, &["add", "--", &path])?;
+    Ok(())
+}
+
+#[tauri::command]
+fn git_unstage_file(working_dir: String, path: String) -> Result<(), String> {
+    if run_git(&working_dir, &["rev-parse", "--verify", "HEAD"]).is_ok() {
+        run_git(&working_dir, &["restore", "--staged", "--", &path])?;
+    } else {
+        run_git(&working_dir, &["rm", "--cached", "--", &path])?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn git_stage_all(working_dir: String) -> Result<(), String> {
+    run_git(&working_dir, &["add", "-A"])?;
+    Ok(())
+}
+
+#[tauri::command]
+fn git_unstage_all(working_dir: String) -> Result<(), String> {
+    if run_git(&working_dir, &["rev-parse", "--verify", "HEAD"]).is_ok() {
+        run_git(&working_dir, &["restore", "--staged", "."])?;
+    } else {
+        run_git(&working_dir, &["rm", "-r", "--cached", "."])?;
+    }
+    Ok(())
 }
 
 fn emit_tool_call(
@@ -626,7 +751,16 @@ fn git_create_branch(working_dir: String, branch: String) -> Result<(), String> 
 
 #[tauri::command]
 fn git_commit(working_dir: String, message: String) -> Result<String, String> {
-    run_git(&working_dir, &["add", "-A"])?;
+    if portable_command("git")
+        .args(["diff", "--cached", "--quiet"])
+        .current_dir(&working_dir)
+        .env("PATH", extended_path())
+        .status()
+        .map_err(|e| format!("Failed to run git: {}", e))?
+        .success()
+    {
+        return Err("No staged changes. Stage files before committing.".to_string());
+    }
     let output = run_git(&working_dir, &["commit", "-m", &message])?;
     // Extract commit hash from output
     Ok(output.lines().next().unwrap_or("committed").to_string())
@@ -771,8 +905,16 @@ fn ai_chat(
 
         "## What you can see\n",
         "- The user has files open in tabs. Their contents are shown above as context between `--- path ---` markers.\n",
+        "- That tab context may be only part of the project. Read other files when needed instead of guessing.\n",
         "- You know the project's working directory.\n",
         "- The user may have selected specific code before asking you.\n\n",
+
+        "## How to work\n",
+        "- Inspect the relevant files before making changes.\n",
+        "- Prefer concrete reads, searches, and targeted edits over speculation.\n",
+        "- Make the smallest correct change that fully completes the request.\n",
+        "- If you need to run or suggest commands, be explicit.\n",
+        "- Tool calls and file reads may be shown inline in the conversation, so keep them relevant to the task.\n\n",
 
         "## How to suggest code changes\n",
         "When you want to create or modify files, output the COMPLETE file content in a fenced code block ",
@@ -783,18 +925,21 @@ fn ai_chat(
         "- Always use the ABSOLUTE path (working directory + relative path). Never just the filename.\n",
         "- Output the FULL file, not just changed parts — the editor diffs it against the original.\n",
         "- You may include multiple `filepath:` blocks to edit multiple files in one response.\n",
-        "- The user will see a diff view with green (added) and red (removed) lines, and can Accept or Reject each file.\n\n",
+        "- If no files need to change, do not emit a `filepath:` block.\n",
+        "- The user will see a diff view with green (added) and red (removed) lines, and can review, accept, or reject each file.\n\n",
 
         "## What the editor supports\n",
         "- **File tree**: the user can browse and open files from the sidebar.\n",
         "- **Terminal**: a full shell is available (Cmd+`).\n",
         "- **Git**: the user can commit, push, pull, switch branches, and create PRs from the editor.\n",
         "- **LSP**: go-to-definition, autocomplete, inline errors, rename — available for TS/JS, Rust, Python, Go, C/C++.\n",
-        "- **Search**: project-wide text search (Cmd+Shift+F).\n\n",
+        "- **Search**: project-wide text search (Cmd+Shift+F).\n",
+        "- **AI activity**: tool calls, file reads, and proposed file changes may be surfaced inline in the chat UI.\n\n",
 
         "## Guidelines\n",
         "- Be concise. The user is a developer working in their editor.\n",
         "- If asked to create a file, use a `filepath:` block with the full content.\n",
+        "- If you need more project context, read or search the codebase before answering.\n",
         "- If asked to explain code, reference specific line numbers and function names.\n",
         "- When referencing files, ALWAYS use the full relative path from the project root in backticks, like `dashboard/src/pages/Compare.tsx` or `server/cmd/server/main.go`. NEVER use just the filename like `Compare.tsx` — the editor needs the full path to make it clickable and openable.\n",
         "- If the task involves running commands (build, test, install), suggest the exact terminal commands.\n",
@@ -1603,6 +1748,7 @@ pub fn run() {
             write_file,
             write_temp_image,
             list_directory,
+            list_project_files,
             search_files,
             get_startup_time,
             load_project_store,
@@ -1611,9 +1757,14 @@ pub fn run() {
             save_settings,
             git_status,
             git_changed_files,
+            git_file_statuses,
             git_branches,
             git_checkout,
             git_create_branch,
+            git_stage_file,
+            git_unstage_file,
+            git_stage_all,
+            git_unstage_all,
             git_commit,
             git_push,
             git_pull,

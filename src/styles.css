@@ -73,6 +73,7 @@ body {
   display: flex;
   flex: 1;
   width: 100vw;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -365,20 +366,41 @@ body {
   margin-left: 8px;
 }
 
+.thread-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
 .thread-delete {
   background: none;
   border: none;
   color: var(--text-dim);
   font-size: 14px;
   cursor: pointer;
-  opacity: 0;
   padding: 0 2px;
   transition: all 0.15s;
   flex-shrink: 0;
 }
 
-.thread-item:hover .thread-delete {
+.thread-item:hover .thread-actions {
   opacity: 1;
+}
+
+.thread-archive {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 2px;
+  transition: color 0.15s;
+}
+
+.thread-archive:hover {
+  color: var(--accent-light);
 }
 
 .thread-delete:hover {
@@ -392,6 +414,41 @@ body {
 
 .thread-new:hover {
   color: var(--accent-light);
+}
+
+.thread-item.archived {
+  opacity: 0.78;
+}
+
+.thread-archive-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 8px 8px 4px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.thread-archive-header:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+}
+
+.thread-archive-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.thread-archive-list {
+  display: none;
+}
+
+.thread-archive-list.expanded {
+  display: block;
 }
 
 /* ═══════════════════════ File Tree ═══════════════════════ */
@@ -520,6 +577,8 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
   background: var(--bg-primary);
 }
@@ -636,6 +695,8 @@ body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
   position: relative;
 }
@@ -647,15 +708,18 @@ body {
 #editor-container > .cm-editor,
 #editor-container > #welcome {
   min-width: 0;
+  min-height: 0;
 }
 
 #editor-container .cm-editor {
   height: 100%;
+  min-height: 0;
   background: var(--bg-primary) !important;
 }
 
 #editor-container .cm-scroller {
   overflow: auto;
+  min-height: 0;
   font-family: var(--font-mono) !important;
   font-size: 13px !important;
   line-height: 1.6 !important;
@@ -1355,10 +1419,9 @@ body {
 
 #ai-context-bar {
   display: flex;
-  align-items: center;
-  gap: 4px;
+  flex-direction: column;
+  gap: 6px;
   padding: 6px 12px 0;
-  flex-wrap: wrap;
   min-height: 0;
 }
 
@@ -1413,10 +1476,12 @@ body {
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  margin-right: 4px;
 }
 
 .context-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 10px;
   padding: 2px 7px;
   border-radius: 4px;
@@ -1429,6 +1494,48 @@ body {
   background: rgba(168, 130, 255, 0.08);
   border-color: rgba(168, 130, 255, 0.2);
   color: var(--accent-light);
+}
+
+.context-chip.subtle {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.context-chip-meta {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.context-overview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.context-total {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.context-meter {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.context-meter-fill {
+  height: 100%;
+  background: linear-gradient(90deg, rgba(168, 130, 255, 0.55), rgba(168, 130, 255, 0.95));
+  border-radius: inherit;
+}
+
+.context-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 /* Image attachments */
@@ -2932,6 +3039,70 @@ body {
   cursor: default;
 }
 
+.settings-shortcut-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-shortcut-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.settings-shortcut-item:first-child {
+  border-top: none;
+}
+
+.settings-shortcut-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-shortcut-btn,
+.settings-shortcut-reset {
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.settings-shortcut-btn {
+  min-width: 132px;
+  padding: 7px 10px;
+  text-align: center;
+}
+
+.settings-shortcut-btn.customized {
+  border-color: rgba(168, 130, 255, 0.28);
+  color: var(--accent-light);
+}
+
+.settings-shortcut-btn.capturing {
+  border-color: rgba(168, 130, 255, 0.45);
+  box-shadow: 0 0 0 2px rgba(168, 130, 255, 0.12);
+}
+
+.settings-shortcut-reset {
+  padding: 7px 10px;
+  color: var(--text-muted);
+  font-family: inherit;
+}
+
+.settings-shortcut-reset:hover,
+.settings-shortcut-btn:hover {
+  border-color: var(--border-light);
+  background: var(--bg-hover);
+}
+
 /* ═══════════════════════ Git Panel ═══════════════════════ */
 .git-panel-body {
   padding: 16px;
@@ -3036,6 +3207,131 @@ body {
 
 .git-action-button.primary:hover {
   background: rgba(168, 130, 255, 0.2);
+}
+
+.git-stage-section {
+  margin-bottom: 14px;
+}
+
+.git-stage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.git-stage-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.git-stage-link {
+  border: none;
+  background: none;
+  color: var(--accent-light);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0;
+}
+
+.git-stage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.git-stage-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.git-stage-group-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.git-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 10px;
+  border: 0.5px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+}
+
+.git-file-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border-light);
+}
+
+.git-file-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.git-file-path {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-file-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.git-file-badge {
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.git-file-badge.staged {
+  background: rgba(52, 211, 153, 0.12);
+  color: var(--success);
+}
+
+.git-file-badge.unstaged {
+  background: rgba(251, 191, 36, 0.12);
+  color: var(--warning);
+}
+
+.git-file-action {
+  border: 0.5px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+  padding: 6px 10px;
+  border-radius: 7px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.git-file-action:hover {
+  color: var(--text-primary);
+}
+
+.git-stage-empty {
+  padding: 12px;
+  border: 0.5px dashed var(--border);
+  border-radius: 8px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 12px;
 }
 
 .git-pr-input {
@@ -3569,6 +3865,13 @@ body {
   background: rgba(168, 130, 255, 0.12);
 }
 
+.command-palette-empty {
+  padding: 16px 12px;
+  color: var(--text-dim);
+  font-size: 12px;
+  text-align: center;
+}
+
 .command-palette-item mark {
   background: rgba(168, 130, 255, 0.3);
   color: var(--text-primary);
@@ -3592,6 +3895,20 @@ body {
   color: var(--text-dim);
   margin-left: 12px;
   font-family: var(--font-mono);
+}
+
+.quick-open-main {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.quick-open-dir {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ═══════════════════════ Browser Preview ═══════════════════════ */

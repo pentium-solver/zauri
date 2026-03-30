@@ -22,3 +22,15 @@
 - [ ] **Semantic highlighting** — LSP-based token coloring
 - [ ] **Workspace symbol search** — Cmd+T to find symbols across project
 - [ ] **Code folding** — collapse functions/blocks
+
+Debugger + run configurations: DAP-based breakpoints, step/continue, variables/watch, debug console, launch/attach profiles.
+Test explorer + coverage: test discovery, gutter run/debug, failed-test navigation, coverage overlay, watch mode.
+Tasks + Problems: first-class build/lint/test tasks with parsed diagnostics instead of raw terminal-only output.
+Workspace trust + permissions: gate tasks, debuggers, agents, MCP servers, and workspace config in untrusted repos.
+Extension platform: languages, debuggers, linters, themes, AI tools, and previews should be pluggable.
+MCP host + tool permissions: make AI/tool integrations first-class and approval-based.
+Inline AI: Cmd+K edits, quick-fix-to-agent, refactor preview, partial accept, next-edit suggestions.
+Background agents with worktree isolation: let an agent code/test on a side worktree while the user keeps editing.
+Remote dev + devcontainers/SSH: this is baseline for serious team use now.
+Project rules + memory: make repo/user/session instructions and learned conventions explicit, not ad hoc.
+Smarter web preview: live reload, error overlay, console bridge, device presets, click-to-source.

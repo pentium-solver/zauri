@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { fuzzyMatch, highlightFuzzyMatch, escapeHtml } from "./fuzzy";
 
 interface GitStatus {
   branch: string;
@@ -16,6 +17,12 @@ interface GitBranch {
   is_remote: boolean;
 }
 
+interface GitFileStatusEntry {
+  path: string;
+  staged_status: string;
+  unstaged_status: string;
+}
+
 let cachedStatus: GitStatus | null = null;
 let getRootPath: () => string | null = () => null;
 
@@ -25,8 +32,10 @@ export function getGitStatus(): GitStatus | null {
 
 export function initGitStatus(rootPathGetter: () => string | null) {
   getRootPath = rootPathGetter;
-  refreshStatus();
-  setInterval(refreshStatus, 10000);
+  void refreshStatus();
+  setInterval(() => {
+    void refreshStatus();
+  }, 10000);
 }
 
 export async function refreshStatus() {
@@ -45,8 +54,6 @@ function updateStatusBar() {
   const branchEl = document.getElementById("status-git-branch");
   const changesEl = document.getElementById("status-git-changes");
   const syncEl = document.getElementById("status-git-sync");
-
-  // Update sidebar git bar visibility
   const sidebarGitBar = document.getElementById("sidebar-git-bar");
   const sidebarBranchName = document.getElementById("sidebar-branch-name");
 
@@ -58,7 +65,6 @@ function updateStatusBar() {
     return;
   }
 
-  // Show sidebar git bar
   if (sidebarGitBar) sidebarGitBar.classList.remove("hidden");
   if (sidebarBranchName) sidebarBranchName.textContent = cachedStatus.branch;
 
@@ -108,20 +114,27 @@ export async function showBranchSelector(anchorEl?: HTMLElement) {
     <div class="branch-list"></div>
   `;
 
-  const listEl = branchDropdown.querySelector(".branch-list")!;
+  const listEl = branchDropdown.querySelector(".branch-list") as HTMLElement;
   const searchInput = branchDropdown.querySelector(".branch-search") as HTMLInputElement;
 
   function renderList(filter: string) {
-    listEl.innerHTML = "";
-    const filtered = branches.filter((b) =>
-      b.name.toLowerCase().includes(filter.toLowerCase()),
-    );
+    const query = filter.trim();
+    const filtered = query
+      ? branches.map((branch) => {
+          const match = fuzzyMatch(query, branch.name);
+          if (!match) return null;
+          return { branch, match };
+        }).filter((item): item is NonNullable<typeof item> => Boolean(item))
+          .sort((a, b) => b.match.score - a.match.score || a.branch.name.localeCompare(b.branch.name))
+      : branches.map((branch) => ({ branch, match: null }));
 
-    for (const branch of filtered) {
+    listEl.innerHTML = "";
+
+    filtered.forEach(({ branch, match }) => {
       const item = document.createElement("div");
       item.className = `branch-item${branch.is_current ? " current" : ""}`;
       item.innerHTML = `
-        <span>${escapeHtml(branch.name)}</span>
+        <span>${match ? highlightFuzzyMatch(branch.name, match.indices) : escapeHtml(branch.name)}</span>
         ${branch.is_remote ? '<span class="branch-remote">remote</span>' : ""}
         ${branch.is_current ? '<span class="branch-current-badge">current</span>' : ""}
       `;
@@ -130,26 +143,25 @@ export async function showBranchSelector(anchorEl?: HTMLElement) {
           try {
             await invoke("git_checkout", { workingDir: root, branch: branch.name });
             await refreshStatus();
-          } catch (e) {
-            console.error("Checkout failed:", e);
+          } catch (error) {
+            console.error("Checkout failed:", error);
           }
           closeBranchSelector();
         });
       }
       listEl.appendChild(item);
-    }
+    });
 
-    // Show "Create branch" option if filter doesn't match any exactly
-    if (filter && !branches.some((b) => b.name === filter)) {
+    if (query && !branches.some((branch) => branch.name === query)) {
       const createItem = document.createElement("div");
       createItem.className = "branch-item branch-create";
-      createItem.innerHTML = `<span>Create <strong>${escapeHtml(filter)}</strong></span>`;
+      createItem.innerHTML = `<span>Create <strong>${escapeHtml(query)}</strong></span>`;
       createItem.addEventListener("click", async () => {
         try {
-          await invoke("git_create_branch", { workingDir: root, branch: filter });
+          await invoke("git_create_branch", { workingDir: root, branch: query });
           await refreshStatus();
-        } catch (e) {
-          console.error("Branch creation failed:", e);
+        } catch (error) {
+          console.error("Branch creation failed:", error);
         }
         closeBranchSelector();
       });
@@ -160,32 +172,27 @@ export async function showBranchSelector(anchorEl?: HTMLElement) {
   searchInput.addEventListener("input", () => renderList(searchInput.value));
   renderList("");
 
-  // Position relative to the triggering element
   const anchor = anchorEl || document.getElementById("status-git-branch");
   if (anchor) {
     const rect = anchor.getBoundingClientRect();
-    // If anchor is near the top (sidebar), show below it
     if (rect.top < window.innerHeight / 2) {
       branchDropdown.style.left = `${rect.left}px`;
       branchDropdown.style.top = `${rect.bottom + 4}px`;
     } else {
-      // Near the bottom (status bar), show above it
       branchDropdown.style.left = `${rect.left}px`;
       branchDropdown.style.bottom = `${window.innerHeight - rect.top + 4}px`;
     }
   }
 
   document.body.appendChild(branchDropdown);
-
-  // Close on outside click
   setTimeout(() => {
     document.addEventListener("click", onOutsideClick);
   }, 0);
   searchInput.focus();
 }
 
-function onOutsideClick(e: MouseEvent) {
-  if (branchDropdown && !branchDropdown.contains(e.target as Node)) {
+function onOutsideClick(event: MouseEvent) {
+  if (branchDropdown && !branchDropdown.contains(event.target as Node)) {
     closeBranchSelector();
   }
 }
@@ -202,6 +209,18 @@ function closeBranchSelector() {
 
 let gitPanel: HTMLElement | null = null;
 
+function summarizeStatus(code: string): string {
+  switch (code) {
+    case "M": return "Modified";
+    case "A": return "Added";
+    case "D": return "Deleted";
+    case "R": return "Renamed";
+    case "C": return "Copied";
+    case "?": return "Untracked";
+    default: return code || "Clean";
+  }
+}
+
 export function toggleGitPanel() {
   if (gitPanel) {
     gitPanel.remove();
@@ -212,12 +231,12 @@ export function toggleGitPanel() {
   const root = getRootPath();
   if (!root || !cachedStatus?.is_repo) return;
 
-  const totalChanges = cachedStatus!.modified + cachedStatus!.added + cachedStatus!.deleted;
+  const totalChanges = cachedStatus.modified + cachedStatus.added + cachedStatus.deleted;
 
   gitPanel = document.createElement("div");
   gitPanel.className = "modal-overlay";
   gitPanel.innerHTML = `
-    <div class="modal-card" style="max-width:400px">
+    <div class="modal-card" style="max-width:640px">
       <div class="modal-header">
         <span>Git</span>
         <button class="modal-close">&times;</button>
@@ -227,14 +246,27 @@ export function toggleGitPanel() {
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
             <path d="M5 3v6.5a2.5 2.5 0 005 0V8M5 3L3 5M5 3l2 2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
-          <strong>${escapeHtml(cachedStatus!.branch)}</strong>
+          <strong>${escapeHtml(cachedStatus.branch)}</strong>
           ${totalChanges > 0 ? `<span class="git-changes-badge">${totalChanges} change${totalChanges > 1 ? "s" : ""}</span>` : '<span class="git-clean-badge">Clean</span>'}
         </div>
+
+        <div class="git-stage-section">
+          <div class="git-stage-header">
+            <span>Staging</span>
+            <div class="git-stage-actions">
+              <button class="git-stage-link" id="git-stage-all" type="button">Stage all</button>
+              <button class="git-stage-link" id="git-unstage-all" type="button">Unstage all</button>
+            </div>
+          </div>
+          <div id="git-stage-list" class="git-stage-list"></div>
+        </div>
+
+        <div class="git-divider"></div>
 
         <div class="git-section">
           <textarea id="git-commit-msg" class="git-commit-input" placeholder="Commit message..." rows="2"></textarea>
           <div class="git-btn-row">
-            <button class="git-action-button primary" id="git-btn-commit">Commit</button>
+            <button class="git-action-button primary" id="git-btn-commit">Commit Staged</button>
             <button class="git-action-button" id="git-btn-commit-push">Commit & Push</button>
           </div>
         </div>
@@ -273,39 +305,127 @@ export function toggleGitPanel() {
   };
 
   gitPanel.querySelector(".modal-close")!.addEventListener("click", close);
-  gitPanel.addEventListener("click", (e) => {
-    if (e.target === gitPanel) close();
+  gitPanel.addEventListener("click", (event) => {
+    if (event.target === gitPanel) close();
   });
 
   const statusMsg = gitPanel.querySelector("#git-action-status") as HTMLElement;
-  const showStatus = (msg: string, isError = false) => {
-    statusMsg.textContent = msg;
+  const stageList = gitPanel.querySelector("#git-stage-list") as HTMLElement;
+
+  const showStatus = (message: string, isError = false) => {
+    statusMsg.textContent = message;
     statusMsg.className = `git-action-status ${isError ? "error" : "success"}`;
   };
 
-  gitPanel.querySelector("#git-btn-commit")!.addEventListener("click", async () => {
-    const msg = (gitPanel!.querySelector("#git-commit-msg") as HTMLTextAreaElement).value.trim();
-    if (!msg) return showStatus("Enter a commit message", true);
+  async function renderFileStatuses() {
     try {
-      const result: string = await invoke("git_commit", { workingDir: root, message: msg });
+      const files: GitFileStatusEntry[] = await invoke("git_file_statuses", { workingDir: root });
+      const staged = files.filter((file) => !!file.staged_status);
+      const unstaged = files.filter((file) => !!file.unstaged_status);
+
+      if (!files.length) {
+        stageList.innerHTML = `<div class="git-stage-empty">Working tree clean</div>`;
+        return;
+      }
+
+      const renderSection = (
+        title: string,
+        items: GitFileStatusEntry[],
+        mode: "stage" | "unstage",
+      ) => {
+        if (!items.length) return "";
+        return `
+          <div class="git-stage-group">
+            <div class="git-stage-group-title">${title}</div>
+            ${items.map((file) => `
+              <div class="git-file-row" data-path="${escapeHtml(file.path)}" data-mode="${mode}">
+                <div class="git-file-meta">
+                  <span class="git-file-path">${escapeHtml(file.path)}</span>
+                  <span class="git-file-badges">
+                    ${file.staged_status ? `<span class="git-file-badge staged">${escapeHtml(summarizeStatus(file.staged_status))}</span>` : ""}
+                    ${file.unstaged_status ? `<span class="git-file-badge unstaged">${escapeHtml(summarizeStatus(file.unstaged_status))}</span>` : ""}
+                  </span>
+                </div>
+                <button class="git-file-action" type="button">${mode === "stage" ? "Stage" : "Unstage"}</button>
+              </div>
+            `).join("")}
+          </div>
+        `;
+      };
+
+      stageList.innerHTML = `
+        ${renderSection("Staged", staged, "unstage")}
+        ${renderSection("Unstaged", unstaged, "stage")}
+      `;
+
+      stageList.querySelectorAll(".git-file-row").forEach((row) => {
+        row.addEventListener("click", async () => {
+          const path = (row as HTMLElement).dataset.path || "";
+          const mode = (row as HTMLElement).dataset.mode;
+          try {
+            if (mode === "stage") {
+              await invoke("git_stage_file", { workingDir: root, path });
+            } else {
+              await invoke("git_unstage_file", { workingDir: root, path });
+            }
+            await refreshStatus();
+            await renderFileStatuses();
+          } catch (error) {
+            showStatus(String(error), true);
+          }
+        });
+      });
+    } catch (error) {
+      stageList.innerHTML = `<div class="git-stage-empty">Failed to load file status</div>`;
+      showStatus(String(error), true);
+    }
+  }
+
+  gitPanel.querySelector("#git-stage-all")!.addEventListener("click", async () => {
+    try {
+      await invoke("git_stage_all", { workingDir: root });
+      await refreshStatus();
+      await renderFileStatuses();
+    } catch (error) {
+      showStatus(String(error), true);
+    }
+  });
+
+  gitPanel.querySelector("#git-unstage-all")!.addEventListener("click", async () => {
+    try {
+      await invoke("git_unstage_all", { workingDir: root });
+      await refreshStatus();
+      await renderFileStatuses();
+    } catch (error) {
+      showStatus(String(error), true);
+    }
+  });
+
+  gitPanel.querySelector("#git-btn-commit")!.addEventListener("click", async () => {
+    const message = (gitPanel!.querySelector("#git-commit-msg") as HTMLTextAreaElement).value.trim();
+    if (!message) return showStatus("Enter a commit message", true);
+    try {
+      const result: string = await invoke("git_commit", { workingDir: root, message });
       showStatus(result);
       await refreshStatus();
-    } catch (e) {
-      showStatus(String(e), true);
+      await renderFileStatuses();
+    } catch (error) {
+      showStatus(String(error), true);
     }
   });
 
   gitPanel.querySelector("#git-btn-commit-push")!.addEventListener("click", async () => {
-    const msg = (gitPanel!.querySelector("#git-commit-msg") as HTMLTextAreaElement).value.trim();
-    if (!msg) return showStatus("Enter a commit message", true);
+    const message = (gitPanel!.querySelector("#git-commit-msg") as HTMLTextAreaElement).value.trim();
+    if (!message) return showStatus("Enter a commit message", true);
     try {
-      await invoke("git_commit", { workingDir: root, message: msg });
+      await invoke("git_commit", { workingDir: root, message });
       showStatus("Committed. Pushing...");
       const result: string = await invoke("git_push", { workingDir: root });
       showStatus(result || "Pushed successfully");
       await refreshStatus();
-    } catch (e) {
-      showStatus(String(e), true);
+      await renderFileStatuses();
+    } catch (error) {
+      showStatus(String(error), true);
     }
   });
 
@@ -314,8 +434,9 @@ export function toggleGitPanel() {
       const result: string = await invoke("git_pull", { workingDir: root });
       showStatus(result || "Pulled successfully");
       await refreshStatus();
-    } catch (e) {
-      showStatus(String(e), true);
+      await renderFileStatuses();
+    } catch (error) {
+      showStatus(String(error), true);
     }
   });
 
@@ -324,8 +445,9 @@ export function toggleGitPanel() {
       const result: string = await invoke("git_push", { workingDir: root });
       showStatus(result || "Pushed successfully");
       await refreshStatus();
-    } catch (e) {
-      showStatus(String(e), true);
+      await renderFileStatuses();
+    } catch (error) {
+      showStatus(String(error), true);
     }
   });
 
@@ -333,21 +455,17 @@ export function toggleGitPanel() {
     const title = (gitPanel!.querySelector("#git-pr-title") as HTMLInputElement).value.trim();
     if (!title) return showStatus("Enter a PR title", true);
     try {
-      // Push first to ensure remote is up to date
       showStatus("Pushing...");
       await invoke("git_push", { workingDir: root });
       showStatus("Creating PR...");
       const result: string = await invoke("git_create_pr", { workingDir: root, title });
       showStatus(result);
       await refreshStatus();
-    } catch (e) {
-      showStatus(String(e), true);
+    } catch (error) {
+      showStatus(String(error), true);
     }
   });
 
   document.body.appendChild(gitPanel);
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  void renderFileStatuses();
 }

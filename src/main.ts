@@ -10,10 +10,11 @@ import { getLanguageExtension } from "./languages";
 import { createAIPanel, initAIPanel, toggleAIPanel, createMessageEl } from "./ai-panel";
 import { createTerminalPanel, initTerminal, toggleTerminal } from "./terminal";
 import { initGitStatus, showBranchSelector, toggleGitPanel, refreshStatus } from "./git";
-import { loadSettingsFromDisk, showSettings } from "./settings";
+import { getSettings, loadSettingsFromDisk, onSettingsChange, patchSettings, showSettings } from "./settings";
 import { showAbout } from "./about";
 import { checkForUpdates, handlePostUpdateLaunch } from "./updater";
 import { registerCommands, showCommandPalette } from "./command-palette";
+import { showQuickOpen } from "./quick-open";
 import {
   isPreviewable,
   showPreview,
@@ -24,11 +25,18 @@ import {
   setPreviewRootPath,
 } from "./preview";
 import { minimapExtension } from "./minimap";
-import { formatShortcut } from "./shortcuts";
+import {
+  eventMatchesCommand,
+  getShortcutLabel,
+  setShortcutOverrides,
+  shortcutDefinitions,
+} from "./shortcuts";
 import {
   loadProjects,
+  archiveThread,
   createProject,
   findProjectByRoot,
+  getArchivedThreadsForProject,
   getProjects,
   getThreadsForProject,
   createThread,
@@ -45,6 +53,7 @@ import {
   getSession,
   timeAgo,
   type Thread,
+  unarchiveThread,
 } from "./projects";
 import { diffExtension, activateDiff, clearDiff } from "./diff-decorations";
 import { lspExtensions, connectLsp, notifyChange } from "./lsp-client";
@@ -59,6 +68,7 @@ import {
   canRevert,
   revertLastSnapshot,
 } from "./ai-edits";
+setShortcutOverrides(getSettings().keybindings);
 
 // ---- Types ----
 interface DirEntry {
@@ -126,12 +136,20 @@ const zauriTheme = EditorView.theme({
 
 // ---- Editor ----
 function createEditorState(content: string, filename: string): EditorState {
+  const settings = getSettings();
   return EditorState.create({
     doc: content,
     extensions: [
       basicSetup,
       oneDark,
       zauriTheme,
+      EditorState.tabSize.of(settings.tabSize),
+      ...(settings.wordWrap ? [EditorView.lineWrapping] : []),
+      EditorView.theme({
+        "&": {
+          fontSize: `${settings.fontSize}px`,
+        },
+      }),
       keymap.of(searchKeymap),
       drawSelection(),
       rectangularSelection(),
@@ -217,6 +235,48 @@ function setEditorContent(state: EditorState) {
     state,
     parent: editorContainer,
   });
+}
+
+function focusEditor() {
+  requestAnimationFrame(() => {
+    editorView?.focus();
+    editorView?.requestMeasure();
+  });
+}
+
+function refreshAIContext() {
+  const aiPanel = document.getElementById("ai-panel");
+  (aiPanel as any)?._updateContext?.();
+}
+
+function reconfigureOpenEditors() {
+  for (const [path, tab] of tabs) {
+    const content = path === activeTabPath && editorView
+      ? editorView.state.doc.toString()
+      : tab.editorState?.doc.toString() || tab.content;
+    tab.editorState = createEditorState(content, tab.name);
+    tab.content = content;
+  }
+
+  if (activeTabPath) {
+    const activeTab = tabs.get(activeTabPath);
+    if (activeTab?.editorState) {
+      setEditorContent(activeTab.editorState);
+    }
+  }
+}
+
+function ensureAIPanelVisible() {
+  const aiPanel = document.getElementById("ai-panel");
+  if (!aiPanel) return;
+
+  if (aiPanel.classList.contains("hidden")) {
+    aiPanel.classList.remove("hidden");
+  }
+
+  (aiPanel as any)._updateContext?.();
+  const input = document.getElementById("ai-input") as HTMLTextAreaElement | null;
+  input?.focus();
 }
 
 // ---- File tree with guide lines ----
@@ -392,6 +452,7 @@ function renderTabs() {
   }
   // Persist session
   saveSession(rootPath, Array.from(tabs.keys()), activeTabPath);
+  refreshAIContext();
 }
 
 function switchTab(path: string) {
@@ -411,6 +472,7 @@ function switchTab(path: string) {
   statusFile.textContent = path;
   renderTabs();
   highlightActiveFile();
+  focusEditor();
 }
 
 function closeTab(path: string) {
@@ -447,24 +509,24 @@ function showWelcome() {
         </div>
         <div class="welcome-shortcuts">
           <div class="welcome-shortcut featured">
-            <span class="shortcut-key">${formatShortcut("Cmd+L", true)}</span>
+            <span class="shortcut-key">${getShortcutLabel("view.ai", true)}</span>
             <span class="shortcut-label">AI assistant</span>
             <span class="shortcut-badge">NEW</span>
           </div>
           <div class="welcome-shortcut">
-            <span class="shortcut-key">${formatShortcut("Cmd+O", true)}</span>
+            <span class="shortcut-key">${getShortcutLabel("file.open", true)}</span>
             <span class="shortcut-label">Open folder</span>
           </div>
           <div class="welcome-shortcut">
-            <span class="shortcut-key">${formatShortcut("Cmd+Shift+F", true)}</span>
+            <span class="shortcut-key">${getShortcutLabel("view.search", true)}</span>
             <span class="shortcut-label">Search in files</span>
           </div>
           <div class="welcome-shortcut">
-            <span class="shortcut-key">${formatShortcut("Cmd+`", true)}</span>
+            <span class="shortcut-key">${getShortcutLabel("view.terminal", true)}</span>
             <span class="shortcut-label">Terminal</span>
           </div>
           <div class="welcome-shortcut">
-            <span class="shortcut-key">${formatShortcut("Cmd+Shift+G", true)}</span>
+            <span class="shortcut-key">${getShortcutLabel("git.panel", true)}</span>
             <span class="shortcut-label">Git</span>
           </div>
         </div>
@@ -503,6 +565,7 @@ async function openFile(path: string, name: string) {
     statusFile.textContent = path;
     statusPerf.textContent = `Opened in ${(t1 - t0).toFixed(1)}ms`;
     highlightActiveFile();
+    focusEditor();
 
     // Connect LSP for this file
     if (editorView && rootPath) {
@@ -608,6 +671,101 @@ function toggleSearch() {
   }
 }
 
+async function createNewThreadForActiveProject() {
+  if (!rootPath) return;
+  const projectName = rootPath.split("/").pop() || rootPath;
+  const project = findProjectByRoot(rootPath) || await createProject(projectName, rootPath);
+  const thread = await createThread(project.id);
+  await switchToThread(thread, rootPath);
+}
+
+async function archiveActiveThread() {
+  if (!activeThreadId) return;
+  await archiveThread(activeThreadId);
+  await clearActiveThreadSelection();
+  renderProjects();
+}
+
+function toggleWordWrap() {
+  void patchSettings({ wordWrap: !getSettings().wordWrap });
+}
+
+function openQuickFilePicker() {
+  showQuickOpen(
+    () => rootPath,
+    (relativePath) => {
+      if (!rootPath) return;
+      const fullPath = `${rootPath}/${relativePath}`;
+      const name = relativePath.split("/").pop() || relativePath;
+      void openFile(fullPath, name);
+    },
+  );
+}
+
+const commandActions: Record<string, () => void> = {
+  "file.open": () => { void openFolder(); },
+  "file.quickOpen": openQuickFilePicker,
+  "file.save": () => { void saveCurrentFile(); },
+  "file.close": () => { if (activeTabPath) closeTab(activeTabPath); },
+  "thread.new": () => { void createNewThreadForActiveProject(); },
+  "thread.archive": () => { void archiveActiveThread(); },
+  "view.terminal": toggleTerminal,
+  "view.ai": toggleAIPanel,
+  "view.search": toggleSearch,
+  "view.settings": showSettings,
+  "git.panel": toggleGitPanel,
+  "editor.palette": showCommandPalette,
+  "editor.wordWrap": toggleWordWrap,
+};
+
+function refreshShortcutUI() {
+  const titles: Array<[string, string, string]> = [
+    ["search-btn", "Search", "view.search"],
+    ["settings-btn", "Settings", "view.settings"],
+    ["sidebar-git-actions-btn", "Git actions", "git.panel"],
+    ["status-terminal-btn", "Terminal", "view.terminal"],
+    ["status-ai-btn", "AI Assistant", "view.ai"],
+  ];
+
+  titles.forEach(([elementId, label, commandId]) => {
+    const element = document.getElementById(elementId);
+    if (!element) return;
+    element.setAttribute("title", `${label} (${getShortcutLabel(commandId)})`);
+  });
+
+  syncCommandPalette();
+  if (!activeTabPath && !editorView) {
+    showWelcome();
+  }
+}
+
+function syncCommandPalette() {
+  registerCommands([
+    { id: "file.open", label: "Open Folder", shortcut: getShortcutLabel("file.open"), category: "File", action: () => { void openFolder(); } },
+    { id: "file.quickOpen", label: "Quick Open", shortcut: getShortcutLabel("file.quickOpen"), category: "File", action: openQuickFilePicker },
+    { id: "file.save", label: "Save File", shortcut: getShortcutLabel("file.save"), category: "File", action: () => { void saveCurrentFile(); } },
+    { id: "file.close", label: "Close Tab", shortcut: getShortcutLabel("file.close"), category: "File", action: () => { if (activeTabPath) closeTab(activeTabPath); } },
+    { id: "thread.new", label: "New Thread", shortcut: getShortcutLabel("thread.new"), category: "AI", action: () => { void createNewThreadForActiveProject(); } },
+    { id: "thread.archive", label: "Archive Thread", shortcut: getShortcutLabel("thread.archive"), category: "AI", action: () => { void archiveActiveThread(); } },
+    { id: "view.terminal", label: "Toggle Terminal", shortcut: getShortcutLabel("view.terminal"), category: "View", action: toggleTerminal },
+    { id: "view.ai", label: "Toggle AI Assistant", shortcut: getShortcutLabel("view.ai"), category: "View", action: toggleAIPanel },
+    { id: "view.search", label: "Search in Files", shortcut: getShortcutLabel("view.search"), category: "View", action: toggleSearch },
+    { id: "view.settings", label: "Open Settings", shortcut: getShortcutLabel("view.settings"), category: "View", action: showSettings },
+    { id: "view.about", label: "About Zauri", category: "View", action: showAbout },
+    { id: "git.panel", label: "Git Actions", shortcut: getShortcutLabel("git.panel"), category: "Git", action: toggleGitPanel },
+    { id: "git.branch", label: "Switch Branch", category: "Git", action: () => showBranchSelector() },
+    { id: "editor.palette", label: "Command Palette", shortcut: getShortcutLabel("editor.palette"), category: "Editor", action: showCommandPalette },
+    { id: "editor.wordWrap", label: "Toggle Word Wrap", shortcut: getShortcutLabel("editor.wordWrap"), category: "Editor", action: toggleWordWrap },
+    { id: "view.preview", label: "Toggle Preview", category: "View", action: () => {
+      if (isPreviewOpen()) { hidePreview(); }
+      else if (activeTabPath && editorView) {
+        showPreview(activeTabPath, editorView.state.doc.toString());
+      }
+    }},
+    { id: "editor.updates", label: "Check for Updates", category: "Editor", action: () => checkForUpdates(false, "command") },
+  ]);
+}
+
 // ---- Folder open ----
 async function openFolder() {
   const selected = await open({ directory: true, multiple: false });
@@ -629,6 +787,7 @@ async function openFolder() {
 async function openProjectFolder(workspaceRoot: string) {
   rootPath = workspaceRoot;
   setPreviewRootPath(rootPath);
+  updateTitlebar(workspaceRoot.split("/").pop() || workspaceRoot);
   fileTree.innerHTML = "";
   await loadDirectory(workspaceRoot, fileTree);
   refreshStatus();
@@ -661,36 +820,15 @@ function highlightActiveFile() {
 
 // ---- Keyboard shortcuts ----
 document.addEventListener("keydown", (e) => {
-  const mod = e.metaKey || e.ctrlKey;
+  for (const definition of shortcutDefinitions) {
+    if (eventMatchesCommand(e, definition.id)) {
+      e.preventDefault();
+      commandActions[definition.id]?.();
+      return;
+    }
+  }
 
-  if (mod && e.key === "w") {
-    e.preventDefault();
-    if (activeTabPath) closeTab(activeTabPath);
-  } else if (mod && e.key === "s") {
-    e.preventDefault();
-    saveCurrentFile();
-  } else if (mod && e.key === "o") {
-    e.preventDefault();
-    openFolder();
-  } else if (mod && e.shiftKey && (e.key === "P" || e.key === "p")) {
-    e.preventDefault();
-    showCommandPalette();
-  } else if (mod && e.shiftKey && (e.key === "F" || e.key === "f")) {
-    e.preventDefault();
-    toggleSearch();
-  } else if (mod && e.key === "l") {
-    e.preventDefault();
-    toggleAIPanel();
-  } else if (mod && e.key === "`") {
-    e.preventDefault();
-    toggleTerminal();
-  } else if (mod && e.key === ",") {
-    e.preventDefault();
-    showSettings();
-  } else if (mod && e.shiftKey && (e.key === "G" || e.key === "g")) {
-    e.preventDefault();
-    toggleGitPanel();
-  } else if (e.key === "Escape") {
+  if (e.key === "Escape") {
     // Close modals/panels in priority order
     const settingsModal = document.getElementById("settings-modal");
     const aboutModal = document.getElementById("about-modal");
@@ -734,6 +872,53 @@ initTerminal(() => rootPath);
 let activeThreadId: string | null = null;
 const projectsList = document.getElementById("projects-list")!;
 
+async function clearActiveThreadSelection() {
+  activeThreadId = null;
+  const aiMessages = document.getElementById("ai-messages");
+  if (aiMessages) aiMessages.innerHTML = "";
+  const aiPanel = document.getElementById("ai-panel");
+  (aiPanel as any)?._setThreadMessages?.([]);
+}
+
+function buildThreadItem(thread: Thread, workspaceRoot: string, archived: boolean): HTMLElement {
+  const threadEl = document.createElement("div");
+  threadEl.className = `thread-item${thread.id === activeThreadId ? " active" : ""}${archived ? " archived" : ""}`;
+  threadEl.innerHTML = `
+    <span class="thread-title">${escapeHtml(thread.title)}</span>
+    <span class="thread-time">${timeAgo(thread.updatedAt || thread.createdAt)}</span>
+    <div class="thread-actions">
+      <button class="thread-archive" title="${archived ? "Restore thread" : "Archive thread"}">${archived ? "\u21A9" : "\u21A7"}</button>
+      <button class="thread-delete" title="Delete thread">&times;</button>
+    </div>
+  `;
+  threadEl.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    await switchToThread(thread, workspaceRoot);
+  });
+  threadEl.querySelector(".thread-archive")!.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    if (archived) {
+      await unarchiveThread(thread.id);
+      await switchToThread(thread, workspaceRoot);
+    } else {
+      await archiveThread(thread.id);
+      if (activeThreadId === thread.id) {
+        await clearActiveThreadSelection();
+      }
+    }
+    renderProjects();
+  });
+  threadEl.querySelector(".thread-delete")!.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    await deleteThread(thread.id);
+    if (activeThreadId === thread.id) {
+      await clearActiveThreadSelection();
+    }
+    renderProjects();
+  });
+  return threadEl;
+}
+
 function renderProjects() {
   const projects = getProjects();
   projectsList.innerHTML = "";
@@ -745,6 +930,7 @@ function renderProjects() {
 
   for (const project of projects) {
     const threads = getThreadsForProject(project.id);
+    const archivedThreads = getArchivedThreadsForProject(project.id);
     const el = document.createElement("div");
     el.className = "project-item";
 
@@ -771,34 +957,32 @@ function renderProjects() {
     newThreadBtn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const thread = await createThread(project.id);
-      activeThreadId = thread.id;
-      renderProjects();
+      await switchToThread(thread, project.workspaceRoot);
     });
     threadList.appendChild(newThreadBtn);
 
     for (const thread of threads) {
-      const threadEl = document.createElement("div");
-      threadEl.className = `thread-item${thread.id === activeThreadId ? " active" : ""}`;
-      threadEl.innerHTML = `
-        <span class="thread-title">${escapeHtml(thread.title)}</span>
-        <span class="thread-time">${timeAgo(thread.createdAt)}</span>
-        <button class="thread-delete" title="Delete thread">&times;</button>
+      threadList.appendChild(buildThreadItem(thread, project.workspaceRoot, false));
+    }
+
+    if (archivedThreads.length > 0) {
+      const archivedToggle = document.createElement("div");
+      archivedToggle.className = "thread-archive-header";
+      archivedToggle.innerHTML = `
+        <span>Archived</span>
+        <span class="thread-archive-count">${archivedThreads.length}</span>
       `;
-      threadEl.querySelector(".thread-title")!.addEventListener("click", (e) => {
-        e.stopPropagation();
-        switchToThread(thread, project.workspaceRoot);
+      const archivedList = document.createElement("div");
+      archivedList.className = "thread-archive-list";
+      archivedThreads.forEach((thread) => {
+        archivedList.appendChild(buildThreadItem(thread, project.workspaceRoot, true));
       });
-      threadEl.querySelector(".thread-delete")!.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        await deleteThread(thread.id);
-        if (activeThreadId === thread.id) {
-          activeThreadId = null;
-          const aiMessages = document.getElementById("ai-messages");
-          if (aiMessages) aiMessages.innerHTML = "";
-        }
-        renderProjects();
+      archivedToggle.addEventListener("click", (event) => {
+        event.stopPropagation();
+        archivedList.classList.toggle("expanded");
       });
-      threadList.appendChild(threadEl);
+      threadList.appendChild(archivedToggle);
+      threadList.appendChild(archivedList);
     }
 
     header.addEventListener("click", () => {
@@ -819,8 +1003,9 @@ function renderProjects() {
   }
 }
 
-function switchToThread(thread: Thread, workspaceRoot: string) {
+async function switchToThread(thread: Thread, workspaceRoot: string) {
   activeThreadId = thread.id;
+  ensureAIPanelVisible();
   // Load messages into AI panel
   const aiMessages = document.getElementById("ai-messages");
   const aiPanel = document.getElementById("ai-panel");
@@ -839,6 +1024,7 @@ function switchToThread(thread: Thread, workspaceRoot: string) {
   }
   // Restore token usage, model/permission, and placeholder for this thread
   if (aiPanel) {
+    (aiPanel as any)._setThreadMessages?.(thread.messages);
     (aiPanel as any)._restoreUsage?.(thread.id);
     (aiPanel as any)._updatePlaceholder?.(thread.messages.length > 0);
     if (thread.model && thread.permissionMode) {
@@ -848,7 +1034,7 @@ function switchToThread(thread: Thread, workspaceRoot: string) {
 
   // Open the project folder if not already open
   if (rootPath !== workspaceRoot) {
-    openProjectFolder(workspaceRoot);
+    await openProjectFolder(workspaceRoot);
   }
   renderProjects();
 }
@@ -1078,12 +1264,24 @@ initAIPanel(
       const currentProvider = getThreadProvider(activeThreadId) || "claude";
       const forked = await forkThread(activeThreadId, currentProvider, "new session");
       if (forked) {
-        switchToThread(forked, rootPath);
+        await switchToThread(forked, rootPath);
         renderProjects();
       }
     },
   },
 );
+
+void loadSettingsFromDisk().then((loadedSettings) => {
+  setShortcutOverrides(loadedSettings.keybindings);
+  const aiPanel = document.getElementById("ai-panel");
+  if (aiPanel) {
+    (aiPanel as any)._setProvider?.(loadedSettings.aiProvider);
+    (aiPanel as any)._setModelAndPermission?.(loadedSettings.aiModel, loadedSettings.aiPermission);
+    aiPanel.style.width = `${Math.max(280, Math.min(800, loadedSettings.aiSidebarWidth || 380))}px`;
+  }
+  reconfigureOpenEditors();
+  refreshShortcutUI();
+});
 
 // Wire up sidebar buttons
 document.getElementById("search-btn")?.addEventListener("click", toggleSearch);
@@ -1187,7 +1385,7 @@ window.addEventListener("zauri-open-file", ((e: CustomEvent) => {
   // Resolve relative path against rootPath
   const fullPath = filePath.startsWith("/") ? filePath : `${rootPath}/${filePath}`;
   const name = fullPath.split("/").pop() || fullPath;
-  openFile(fullPath, name);
+  void openFile(fullPath, name);
 }) as EventListener);
 
 window.addEventListener("zauri-switch-thread", ((e: CustomEvent) => {
@@ -1195,23 +1393,22 @@ window.addEventListener("zauri-switch-thread", ((e: CustomEvent) => {
   if (!threadId) return;
   const allProjects = getProjects();
   for (const project of allProjects) {
-    const threads = getThreadsForProject(project.id);
+    const threads = [...getThreadsForProject(project.id), ...getArchivedThreadsForProject(project.id)];
     const thread = threads.find((t: Thread) => t.id === threadId);
     if (thread) {
       if (skipLoadMessages) {
         // Just update the active thread ID without reloading messages
         activeThreadId = thread.id;
+        ensureAIPanelVisible();
+        const aiPanel = document.getElementById("ai-panel");
+        (aiPanel as any)?._setThreadMessages?.(thread.messages);
         if (rootPath !== project.workspaceRoot) {
-          openProjectFolder(project.workspaceRoot);
+          void openProjectFolder(project.workspaceRoot);
         }
       } else {
-        switchToThread(thread, project.workspaceRoot);
+        void switchToThread(thread, project.workspaceRoot);
       }
       renderProjects();
-      const aiPanel = document.getElementById("ai-panel");
-      if (aiPanel?.classList.contains("hidden")) {
-        toggleAIPanel();
-      }
       break;
     }
   }
@@ -1219,9 +1416,11 @@ window.addEventListener("zauri-switch-thread", ((e: CustomEvent) => {
 
 // Init git status polling
 initGitStatus(() => rootPath);
-
-// Load settings
-loadSettingsFromDisk();
+onSettingsChange((nextSettings) => {
+  setShortcutOverrides(nextSettings.keybindings);
+  reconfigureOpenEditors();
+  refreshShortcutUI();
+});
 
 // ---- Startup ----
 window.addEventListener("DOMContentLoaded", () => {
@@ -1240,26 +1439,5 @@ window.addEventListener("DOMContentLoaded", () => {
       void checkForUpdates(true, "startup");
     }, 3000);
   })();
-
-  // Register command palette commands
-  registerCommands([
-    { id: "file.open", label: "Open Folder", shortcut: formatShortcut("Cmd+O"), category: "File", action: openFolder },
-    { id: "file.save", label: "Save File", shortcut: formatShortcut("Cmd+S"), category: "File", action: saveCurrentFile },
-    { id: "file.close", label: "Close Tab", shortcut: formatShortcut("Cmd+W"), category: "File", action: () => { if (activeTabPath) closeTab(activeTabPath); } },
-    { id: "view.terminal", label: "Toggle Terminal", shortcut: formatShortcut("Cmd+`"), category: "View", action: toggleTerminal },
-    { id: "view.ai", label: "Toggle AI Assistant", shortcut: formatShortcut("Cmd+L"), category: "View", action: toggleAIPanel },
-    { id: "view.search", label: "Search in Files", shortcut: formatShortcut("Cmd+Shift+F"), category: "View", action: toggleSearch },
-    { id: "view.settings", label: "Open Settings", shortcut: formatShortcut("Cmd+,"), category: "View", action: showSettings },
-    { id: "view.about", label: "About Zauri", category: "View", action: showAbout },
-    { id: "git.panel", label: "Git Actions", shortcut: formatShortcut("Cmd+Shift+G"), category: "Git", action: toggleGitPanel },
-    { id: "git.branch", label: "Switch Branch", category: "Git", action: () => showBranchSelector() },
-    { id: "editor.palette", label: "Command Palette", shortcut: formatShortcut("Cmd+Shift+P"), category: "Editor", action: showCommandPalette },
-    { id: "view.preview", label: "Toggle Preview", category: "View", action: () => {
-      if (isPreviewOpen()) { hidePreview(); }
-      else if (activeTabPath && editorView) {
-        showPreview(activeTabPath, editorView.state.doc.toString());
-      }
-    }},
-    { id: "editor.updates", label: "Check for Updates", category: "Editor", action: () => checkForUpdates(false, "command") },
-  ]);
+  refreshShortcutUI();
 });

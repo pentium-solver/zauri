@@ -1,4 +1,5 @@
 // Command Palette: Cmd+Shift+P fuzzy search for actions
+import { fuzzyMatch, highlightFuzzyMatch, escapeHtml } from "./fuzzy";
 
 interface PaletteCommand {
   id: string;
@@ -37,42 +38,48 @@ export function showCommandPalette() {
 
   function render(filter: string) {
     const filtered = filter
-      ? commands.filter((c) =>
-          c.label.toLowerCase().includes(filter.toLowerCase()) ||
-          (c.category || "").toLowerCase().includes(filter.toLowerCase())
-        )
-      : commands;
+      ? commands.map((command) => {
+          const labelMatch = fuzzyMatch(filter, command.label);
+          const categoryMatch = command.category ? fuzzyMatch(filter, command.category) : null;
+          const bestMatch = labelMatch || categoryMatch;
+          if (!bestMatch) {
+            return null;
+          }
+          const score = Math.max(labelMatch?.score || Number.NEGATIVE_INFINITY, categoryMatch?.score || Number.NEGATIVE_INFINITY);
+          return { command, labelMatch, categoryMatch, score };
+        }).filter((item): item is NonNullable<typeof item> => Boolean(item))
+          .sort((a, b) => b.score - a.score || a.command.label.localeCompare(b.command.label))
+      : commands.map((command) => ({ command, labelMatch: null, categoryMatch: null, score: 0 }));
 
     selectedIdx = 0;
     list.innerHTML = "";
 
-    filtered.forEach((cmd, i) => {
-      const item = document.createElement("div");
-      item.className = `command-palette-item${i === selectedIdx ? " selected" : ""}`;
-      item.innerHTML = `
-        <span class="cmd-label">${highlightMatch(cmd.label, filter)}</span>
-        ${cmd.category ? `<span class="cmd-category">${cmd.category}</span>` : ""}
+    if (!filtered.length) {
+      list.innerHTML = `<div class="command-palette-empty">No commands found</div>`;
+      return;
+    }
+
+    filtered.forEach((item, i) => {
+      const cmd = item.command;
+      const row = document.createElement("div");
+      row.className = `command-palette-item${i === selectedIdx ? " selected" : ""}`;
+      row.innerHTML = `
+        <span class="cmd-label">${item.labelMatch ? highlightFuzzyMatch(cmd.label, item.labelMatch.indices) : escapeHtml(cmd.label)}</span>
+        ${cmd.category ? `<span class="cmd-category">${item.categoryMatch ? highlightFuzzyMatch(cmd.category, item.categoryMatch.indices) : escapeHtml(cmd.category)}</span>` : ""}
         ${cmd.shortcut ? `<span class="cmd-shortcut">${cmd.shortcut}</span>` : ""}
       `;
-      item.addEventListener("click", () => {
+      row.addEventListener("click", () => {
         close();
         cmd.action();
       });
-      item.addEventListener("mouseenter", () => {
+      row.addEventListener("mouseenter", () => {
         list.querySelectorAll(".command-palette-item").forEach((el, idx) => {
           el.classList.toggle("selected", idx === i);
         });
         selectedIdx = i;
       });
-      list.appendChild(item);
+      list.appendChild(row);
     });
-  }
-
-  function highlightMatch(text: string, query: string): string {
-    if (!query) return text;
-    const idx = text.toLowerCase().indexOf(query.toLowerCase());
-    if (idx === -1) return text;
-    return `${text.slice(0, idx)}<mark>${text.slice(idx, idx + query.length)}</mark>${text.slice(idx + query.length)}`;
   }
 
   function close() {

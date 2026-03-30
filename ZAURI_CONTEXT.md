@@ -6,7 +6,7 @@
 A lightweight desktop code editor built from scratch with Tauri (Rust), Zig, and TypeScript. Open source at https://github.com/pentium-solver/zauri
 
 ## Current Version
-v0.6.6 (March 2026)
+v0.6.8 (March 2026)
 
 ## Features
 - **AI Assistant** — Claude + Codex with real-time streaming, session resume, conversation forking, model/permission selectors, thinking mode, token tracking
