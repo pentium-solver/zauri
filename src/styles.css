@@ -1863,6 +1863,25 @@ body {
   user-select: text;
 }
 
+.ai-thinking-summary code {
+  font-size: 0.9em;
+  line-height: 1.3;
+  padding: 0.08em 0.38em;
+  border-radius: 4px;
+}
+
+.ai-thinking-summary pre {
+  font-size: 0.95em;
+  line-height: 1.4;
+  padding: 6px 8px;
+  margin: 6px 0;
+}
+
+.ai-thinking-summary pre code {
+  font-size: inherit;
+  padding: 0;
+}
+
 /* ═══════════════════════ Toolbar Toggle ═══════════════════════ */
 .ai-toolbar-toggle {
   background: none;
@@ -3154,6 +3173,129 @@ body {
   color: var(--accent-light);
 }
 
+.about-update-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.about-update-badge {
+  flex-shrink: 0;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.about-update-badge-idle,
+.about-update-badge-checking {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-muted);
+}
+
+.about-update-badge-available {
+  background: rgba(168, 130, 255, 0.12);
+  border-color: rgba(168, 130, 255, 0.3);
+  color: var(--accent-light);
+}
+
+.about-update-badge-latest,
+.about-update-badge-updated {
+  background: rgba(52, 211, 153, 0.12);
+  border-color: rgba(52, 211, 153, 0.28);
+  color: var(--success);
+}
+
+.about-update-badge-downloading,
+.about-update-badge-installing,
+.about-update-badge-restarting {
+  background: rgba(96, 165, 250, 0.12);
+  border-color: rgba(96, 165, 250, 0.28);
+  color: #93c5fd;
+}
+
+.about-update-badge-error {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.28);
+  color: #f87171;
+}
+
+.about-update-highlight {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(52, 211, 153, 0.28);
+  background: linear-gradient(180deg, rgba(52, 211, 153, 0.12), rgba(52, 211, 153, 0.05));
+}
+
+.about-update-highlight strong {
+  display: block;
+  font-size: 13px;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.about-update-highlight p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.about-update-progress {
+  margin-top: 16px;
+}
+
+.about-update-progress-bar {
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.about-update-progress-fill {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #7dd3fc, #a78bfa);
+  transition: width 0.2s ease;
+}
+
+.about-update-progress.indeterminate .about-update-progress-fill {
+  width: 36% !important;
+  animation: updateProgressSlide 1.2s ease-in-out infinite;
+}
+
+.about-update-progress-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.about-update-notes {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.about-update-actions {
+  margin-top: 16px;
+}
+
 /* ═══════════════════════ Find/Replace Panel ═══════════════════════ */
 .cm-panel.cm-search {
   background: var(--bg-elevated) !important;
@@ -3530,20 +3672,46 @@ body {
   transform: translateX(-50%);
   background: var(--bg-elevated);
   border: 0.5px solid rgba(168, 130, 255, 0.25);
-  border-radius: 10px;
-  padding: 10px 16px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
+  border-radius: 12px;
+  padding: 14px 16px;
+  min-width: min(520px, calc(100vw - 32px));
   z-index: 5000;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-  font-size: 13px;
   color: var(--text-primary);
+}
+
+.update-banner-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.update-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.update-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.update-detail {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .update-actions {
   display: flex;
   gap: 6px;
+  flex-shrink: 0;
 }
 
 .update-btn {
@@ -3573,10 +3741,37 @@ body {
   background: rgba(168, 130, 255, 0.25);
 }
 
+.update-progress {
+  width: 100%;
+  height: 6px;
+  margin-top: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.update-progress-fill {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #7dd3fc, #a78bfa);
+  transition: width 0.2s ease;
+}
+
+.update-progress.indeterminate .update-progress-fill {
+  width: 36% !important;
+  animation: updateProgressSlide 1.2s ease-in-out infinite;
+}
+
 /* ═══════════════════════ Animations ═══════════════════════ */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes updateProgressSlide {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(320%); }
 }
 
 .fade-in {

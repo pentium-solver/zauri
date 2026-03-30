@@ -12,7 +12,7 @@ import { createTerminalPanel, initTerminal, toggleTerminal } from "./terminal";
 import { initGitStatus, showBranchSelector, toggleGitPanel, refreshStatus } from "./git";
 import { loadSettingsFromDisk, showSettings } from "./settings";
 import { showAbout } from "./about";
-import { checkForUpdates } from "./updater";
+import { checkForUpdates, handlePostUpdateLaunch } from "./updater";
 import { registerCommands, showCommandPalette } from "./command-palette";
 import {
   isPreviewable,
@@ -1229,8 +1229,17 @@ window.addEventListener("DOMContentLoaded", () => {
   statusPerf.textContent = `Ready in ${loadTime.toFixed(0)}ms`;
   console.log(`[perf] Frontend DOM ready: ${loadTime.toFixed(1)}ms`);
 
-  // Check for updates after a short delay
-  setTimeout(() => checkForUpdates(), 3000);
+  void (async () => {
+    const reopenedAfterUpdate = await handlePostUpdateLaunch();
+    if (reopenedAfterUpdate) {
+      showAbout();
+      return;
+    }
+
+    window.setTimeout(() => {
+      void checkForUpdates(true, "startup");
+    }, 3000);
+  })();
 
   // Register command palette commands
   registerCommands([
@@ -1251,6 +1260,6 @@ window.addEventListener("DOMContentLoaded", () => {
         showPreview(activeTabPath, editorView.state.doc.toString());
       }
     }},
-    { id: "editor.updates", label: "Check for Updates", category: "Editor", action: () => checkForUpdates(false) },
+    { id: "editor.updates", label: "Check for Updates", category: "Editor", action: () => checkForUpdates(false, "command") },
   ]);
 });

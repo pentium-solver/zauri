@@ -511,7 +511,12 @@ fn collect_json_text(value: &serde_json::Value) -> Option<String> {
 }
 
 fn event_looks_like_reasoning(event_type: &str, event: &serde_json::Value) -> bool {
-    let mut labels = vec![event_type.to_ascii_lowercase()];
+    let event_type_lower = event_type.to_ascii_lowercase();
+    if event_type_lower.contains("reasoning_summary_text") {
+        return false;
+    }
+
+    let mut labels = vec![event_type_lower];
 
     if let Some(value) = event
         .get("item")
