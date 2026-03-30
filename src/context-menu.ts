@@ -2,6 +2,7 @@
 
 import { EditorView } from "@codemirror/view";
 import { isLspActive } from "./lsp-client";
+import { formatShortcut } from "./shortcuts";
 
 let menuEl: HTMLElement | null = null;
 
@@ -50,19 +51,19 @@ export function showContextMenu(
 
   const actions: MenuAction[] = [
     ...(lspActive ? [
-      { label: "Go to Definition", shortcut: "Cmd+Click", action: callbacks.onGoToDefinition, disabled: !wordText },
+      { label: "Go to Definition", shortcut: formatShortcut("Cmd+Click"), action: callbacks.onGoToDefinition, disabled: !wordText },
       { label: "Find References", shortcut: "Shift+F12", action: callbacks.onFindReferences, disabled: !wordText },
       { label: "Rename Symbol", shortcut: "F2", action: callbacks.onRename, disabled: !wordText },
       { divider: true } as MenuAction,
     ] : []),
-    { label: "Cut", shortcut: "Cmd+X", action: () => { document.execCommand("cut"); }, disabled: !hasSelection },
-    { label: "Copy", shortcut: "Cmd+C", action: () => { document.execCommand("copy"); }, disabled: !hasSelection },
-    { label: "Paste", shortcut: "Cmd+V", action: () => { document.execCommand("paste"); } },
-    { label: "Select All", shortcut: "Cmd+A", action: () => { view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } }); } },
+    { label: "Cut", shortcut: formatShortcut("Cmd+X"), action: () => { document.execCommand("cut"); }, disabled: !hasSelection },
+    { label: "Copy", shortcut: formatShortcut("Cmd+C"), action: () => { document.execCommand("copy"); }, disabled: !hasSelection },
+    { label: "Paste", shortcut: formatShortcut("Cmd+V"), action: () => { document.execCommand("paste"); } },
+    { label: "Select All", shortcut: formatShortcut("Cmd+A"), action: () => { view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } }); } },
     { divider: true } as MenuAction,
     {
       label: hasSelection ? "Ask AI about selection" : "Ask AI about this file",
-      shortcut: "Cmd+L",
+      shortcut: formatShortcut("Cmd+L"),
       action: () => callbacks.onAskAI(selectedText),
     },
   ];

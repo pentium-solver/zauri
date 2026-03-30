@@ -4,11 +4,28 @@ import { marked } from "marked";
 import { parseEditsFromResponse, type ProposedEdit } from "./ai-edits";
 import { getSettings, updateAISettings } from "./settings";
 import { getThreadProvider, setThreadProvider, forkThread, addThreadUsage, getThreadUsage } from "./projects";
+import { formatShortcut } from "./shortcuts";
 
 interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   timestamp: number;
+}
+
+interface ComposerImage {
+  name: string;
+  path: string;
+  dataUrl: string;
+}
+
+interface MessageAttachment {
+  name: string;
+  dataUrl?: string;
+}
+
+interface ReplyTarget {
+  role: "user" | "assistant";
+  content: string;
 }
 
 let isStreaming = false;
@@ -26,7 +43,7 @@ export function createAIPanel(): HTMLElement {
       <span class="ai-label">AI Assistant</span>
       <div class="ai-header-actions">
         <span id="ai-status" class="ai-status"></span>
-        <button id="ai-search-toggle" class="ai-header-btn" title="Search messages (Cmd+F)">
+        <button id="ai-search-toggle" class="ai-header-btn" title="Search messages (${formatShortcut("Cmd+F")})">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
             <circle cx="7" cy="7" r="3.5" stroke="currentColor" stroke-width="1.2"/>
             <line x1="9.5" y1="9.5" x2="13" y2="13" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
@@ -58,6 +75,7 @@ export function createAIPanel(): HTMLElement {
     <div id="ai-messages"></div>
     <div id="ai-input-area">
       <div id="ai-context-bar"></div>
+      <div id="ai-reply-bar"></div>
       <div id="ai-image-preview"></div>
       <div id="ai-composer">
         <button id="ai-attach" class="ai-attach-btn" title="Attach image">
@@ -119,6 +137,7 @@ interface EditCallbacks {
 interface ThreadCallbacks {
   getActiveThreadId: () => string | null;
   getSessionId: () => string | undefined;
+  ensureActiveThread: () => Promise<string | null>;
   saveMessage: (role: "user" | "assistant", content: string) => Promise<void>;
   saveSessionId: (sid: string) => Promise<void>;
   clearSessionId: () => Promise<void>;
@@ -141,8 +160,166 @@ export function initAIPanel(
   const closeBtn = document.getElementById("ai-close")!;
   const statusEl = document.getElementById("ai-status")!;
   const contextBar = document.getElementById("ai-context-bar")!;
+  const replyBar = document.getElementById("ai-reply-bar")!;
 
   let currentProvider = "claude";
+  let pendingPlan: string | null = null;
+  let isPlanHintDismissed = false;
+  let replyTarget: ReplyTarget | null = null;
+  let attachedImages: ComposerImage[] = [];
+  let currentStreamToolCalls: Map<string, HTMLElement> = new Map();
+  let currentThinkingContent = "";
+  let lastStreamError: string | null = null;
+
+  function removePlanHint() {
+    document.getElementById("plan-execute-hint")?.remove();
+  }
+
+  function updatePlanHint() {
+    input.placeholder = pendingPlan
+      ? "Press Enter to execute plan, or type to modify..."
+      : "Ask about your code...";
+
+    if (!pendingPlan || isPlanHintDismissed || input.value.trim() !== "") {
+      removePlanHint();
+      return;
+    }
+
+    let hint = document.getElementById("plan-execute-hint");
+    if (!hint) {
+      hint = document.createElement("div");
+      hint.id = "plan-execute-hint";
+      hint.className = "plan-execute-hint fade-in";
+      hint.innerHTML = `
+        <span>Press Enter to execute plan</span>
+        <button type="button" class="plan-execute-close" aria-label="Dismiss plan hint">&times;</button>
+      `;
+      hint.querySelector(".plan-execute-close")?.addEventListener("click", () => {
+        isPlanHintDismissed = true;
+        removePlanHint();
+      });
+    }
+
+    const inputArea = document.getElementById("ai-input-area");
+    if (inputArea && hint.parentElement !== inputArea) {
+      inputArea.prepend(hint);
+    }
+  }
+
+  function clearPlanHint() {
+    pendingPlan = null;
+    isPlanHintDismissed = false;
+    updatePlanHint();
+  }
+
+  function updateReplyBar() {
+    if (!replyTarget) {
+      replyBar.innerHTML = "";
+      replyBar.classList.remove("active");
+      return;
+    }
+
+    const preview = replyTarget.content.replace(/\s+/g, " ").slice(0, 120);
+    replyBar.classList.add("active");
+    replyBar.innerHTML = `
+      <div class="ai-reply-pill">
+        <span class="ai-reply-label">Replying to ${replyTarget.role === "assistant" ? activeProviderName : "you"}</span>
+        <span class="ai-reply-text">${escapeHtml(preview)}${replyTarget.content.length > 120 ? "..." : ""}</span>
+        <button type="button" class="ai-reply-clear" aria-label="Clear reply">&times;</button>
+      </div>
+    `;
+    replyBar.querySelector(".ai-reply-clear")?.addEventListener("click", () => {
+      replyTarget = null;
+      updateReplyBar();
+      input.focus();
+    });
+  }
+
+  function buildPrompt(text: string): string {
+    if (!replyTarget) return text;
+
+    const who = replyTarget.role === "assistant" ? activeProviderName : "You";
+    return `Reply to this message from ${who}:\n"""\n${replyTarget.content}\n"""\n\n${text}`;
+  }
+
+  function ensureStreamingMessage(): HTMLElement {
+    removeLoading();
+    if (!isStreaming) {
+      isStreaming = true;
+      currentStreamContent = "";
+      currentThinkingContent = "";
+      currentStreamToolCalls.clear();
+      const msg = createMessageEl("assistant", "");
+      messagesContainer.appendChild(msg);
+    }
+    return messagesContainer.querySelector(".ai-msg-assistant:last-child") as HTMLElement;
+  }
+
+  function getStreamingMessage(): HTMLElement | null {
+    return messagesContainer.querySelector(".ai-msg-assistant:last-child") as HTMLElement | null;
+  }
+
+  function ensureThinkingBlock(msgEl: HTMLElement): HTMLElement {
+    let thinkBlock = msgEl.querySelector(".ai-thinking-block") as HTMLElement | null;
+    if (thinkBlock) {
+      return thinkBlock;
+    }
+
+    thinkBlock = document.createElement("div");
+    thinkBlock.className = "ai-thinking-block is-active";
+    thinkBlock.innerHTML = `
+      <div class="ai-thinking-label">Thinking</div>
+      <div class="ai-thinking-summary ai-msg-content"></div>
+    `;
+
+    const content = msgEl.querySelector(".ai-msg-content");
+    if (content) {
+      msgEl.insertBefore(thinkBlock, content);
+    } else {
+      msgEl.appendChild(thinkBlock);
+    }
+    return thinkBlock;
+  }
+
+  function updateThinkingBlock(chunk: string, msgEl: HTMLElement = ensureStreamingMessage()) {
+    if (!chunk) return;
+
+    currentThinkingContent += chunk;
+    const thinkBlock = ensureThinkingBlock(msgEl);
+    const summary = thinkBlock.querySelector(".ai-thinking-summary");
+    if (summary) {
+      const thinkingText = currentThinkingContent.trim();
+      summary.innerHTML = renderMarkdown(thinkingText || "Thinking...");
+      linkifyFilePaths(summary as HTMLElement);
+    }
+    thinkBlock.classList.add("is-active");
+    thinkBlock.classList.remove("is-complete");
+  }
+
+  function finalizeThinkingBlock(msgEl: ParentNode | null = getStreamingMessage()) {
+    const thinkBlock = msgEl?.querySelector(".ai-thinking-block") as HTMLElement | null;
+    if (!thinkBlock) return;
+
+    const summary = thinkBlock.querySelector(".ai-thinking-summary");
+    const finalText = currentThinkingContent.trim();
+    if (!finalText) {
+      thinkBlock.remove();
+      return;
+    }
+
+    if (summary) {
+      summary.innerHTML = renderMarkdown(finalText);
+      linkifyFilePaths(summary as HTMLElement);
+    }
+    thinkBlock.classList.remove("is-active");
+    thinkBlock.classList.add("is-complete");
+  }
+
+  function resolveStreamError(payload: string | null | undefined): string | null {
+    if (!payload || payload === "ok") return null;
+    if (payload !== "error") return payload;
+    return lastStreamError;
+  }
 
   // ---- Provider-specific configs ----
   const providerConfigs: Record<string, {
@@ -465,8 +642,10 @@ export function initAIPanel(
       await invoke("ai_cancel");
     } catch { /* ignore */ }
     removeLoading();
+    clearGapTimer();
     isStreaming = false;
     isSending = false;
+    finalizeThinkingBlock();
     sendBtn.classList.remove("hidden");
     stopBtn.classList.add("hidden");
     sendBtn.removeAttribute("disabled");
@@ -474,8 +653,8 @@ export function initAIPanel(
     input.focus();
     statusEl.textContent = "Cancelled";
     statusEl.className = "ai-status error";
+    currentThinkingContent = "";
   });
-  let pendingPlan: string | null = null;
 
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -483,12 +662,9 @@ export function initAIPanel(
       // If there's a pending plan and input is empty, execute it
       if (pendingPlan && input.value.trim() === "") {
         input.value = `PLEASE IMPLEMENT THIS PLAN:\n${pendingPlan}`;
-        input.placeholder = "Ask about your code...";
-        pendingPlan = null;
-        const planHint = document.getElementById("plan-execute-hint");
-        if (planHint) planHint.remove();
+        clearPlanHint();
       }
-      sendMessage();
+      void sendMessage();
     }
   });
 
@@ -496,6 +672,7 @@ export function initAIPanel(
   input.addEventListener("input", () => {
     input.style.height = "auto";
     input.style.height = Math.min(input.scrollHeight, 150) + "px";
+    updatePlanHint();
   });
 
   // ---- Token usage tracking ----
@@ -705,37 +882,13 @@ export function initAIPanel(
     if (inlineDotsEl) { inlineDotsEl.remove(); inlineDotsEl = null; }
   }
 
-  // Listen for thinking tokens (shown in a collapsible block)
-  let thinkingContent = "";
+  // Listen for thinking tokens (shown as a transient muted indicator)
   listen<string>("ai-thinking-chunk", (event) => {
     const token = event.payload;
     if (!token) return;
 
     clearGapTimer();
-    removeLoading();
-
-    if (!isStreaming) {
-      isStreaming = true;
-      currentStreamContent = "";
-      const msg = createMessageEl("assistant", "");
-      messagesContainer.appendChild(msg);
-    }
-
-    thinkingContent += token;
-    const msgEl = messagesContainer.querySelector(".ai-msg-assistant:last-child");
-    if (msgEl) {
-      let thinkBlock = msgEl.querySelector(".ai-thinking-block") as HTMLElement;
-      if (!thinkBlock) {
-        thinkBlock = document.createElement("details");
-        thinkBlock.className = "ai-thinking-block";
-        thinkBlock.innerHTML = `<summary class="ai-thinking-summary">Thinking...</summary><pre class="ai-thinking-content"></pre>`;
-        const content = msgEl.querySelector(".ai-msg-content");
-        if (content) msgEl.insertBefore(thinkBlock, content);
-        else msgEl.appendChild(thinkBlock);
-      }
-      const pre = thinkBlock.querySelector(".ai-thinking-content");
-      if (pre) pre.textContent = thinkingContent;
-    }
+    updateThinkingBlock(token);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
     startGapTimer();
   });
@@ -743,27 +896,18 @@ export function initAIPanel(
   // ---- Image attachments ----
   const imagePreview = document.getElementById("ai-image-preview")!;
   const attachBtn = document.getElementById("ai-attach")!;
-  let attachedImages: { name: string; path: string; dataUrl: string }[] = [];
-
   function addImage(file: File) {
     const reader = new FileReader();
     reader.onload = async () => {
       const dataUrl = reader.result as string;
-      // Save to temp file for CLI
-      const base64 = dataUrl.split(",")[1];
-      const ext = file.name.split(".").pop() || "png";
-      const tempName = `zauri-img-${Date.now()}.${ext}`;
-      const tempPath = `/tmp/${tempName}`;
       try {
-        // Write base64 to temp file via Rust
-        const bytes = atob(base64);
-        const arr = new Uint8Array(bytes.length);
-        for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-        await invoke("write_file", { path: tempPath, content: Array.from(arr).map(b => String.fromCharCode(b)).join("") });
-      } catch { /* fallback: just keep dataUrl */ }
-
-      attachedImages.push({ name: file.name, path: tempPath, dataUrl });
-      renderImagePreview();
+        const path: string = await invoke("write_temp_image", { name: file.name, dataUrl });
+        attachedImages.push({ name: file.name, path, dataUrl });
+        renderImagePreview();
+      } catch (err) {
+        messagesContainer.appendChild(createMessageEl("system", `Error attaching image: ${err}`));
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      }
     };
     reader.readAsDataURL(file);
   }
@@ -778,6 +922,7 @@ export function initAIPanel(
     imagePreview.innerHTML = attachedImages.map((img, i) => `
       <div class="ai-image-thumb">
         <img src="${img.dataUrl}" alt="${img.name}" />
+        <span class="ai-image-name">${escapeHtml(img.name)}</span>
         <button class="ai-image-remove" data-idx="${i}">&times;</button>
       </div>
     `).join("");
@@ -827,6 +972,59 @@ export function initAIPanel(
     }
   });
 
+  window.addEventListener("zauri-ai-reply", ((event: CustomEvent) => {
+    const detail = event.detail as ReplyTarget | undefined;
+    if (!detail) return;
+    replyTarget = detail;
+    updateReplyBar();
+    input.focus();
+  }) as EventListener);
+
+  function renderToolCall(payload: { name?: string; input?: string; status?: string }) {
+    const msgEl = ensureStreamingMessage();
+    let container = msgEl.querySelector(".ai-tool-calls") as HTMLElement | null;
+    if (!container) {
+      container = document.createElement("div");
+      container.className = "ai-tool-calls";
+      const content = msgEl.querySelector(".ai-msg-content");
+      if (content) msgEl.insertBefore(container, content);
+      else msgEl.appendChild(container);
+    }
+
+    const name = payload.name || "Tool";
+    const inputText = payload.input?.trim() || "";
+    const key = `${name}:${inputText}`;
+    const status = payload.status || "running";
+    let row = currentStreamToolCalls.get(key);
+
+    if (!row) {
+      row = document.createElement("div");
+      row.className = "ai-tool-call";
+      row.innerHTML = `
+        <div class="ai-tool-call-header">
+          <span class="ai-tool-call-name"></span>
+          <span class="ai-tool-call-status"></span>
+        </div>
+        <pre class="ai-tool-call-input"></pre>
+      `;
+      container.appendChild(row);
+      currentStreamToolCalls.set(key, row);
+    }
+
+    row.querySelector(".ai-tool-call-name")!.textContent = name;
+    row.querySelector(".ai-tool-call-status")!.textContent = status;
+    row.querySelector(".ai-tool-call-input")!.textContent = inputText;
+  }
+
+  listen<string>("ai-tool-call", (event) => {
+    try {
+      renderToolCall(JSON.parse(event.payload));
+    } catch {
+      renderToolCall({ name: event.payload });
+    }
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+  });
+
   // Progressive markdown rendering flag
   let markdownRenderPending = false;
 
@@ -835,21 +1033,15 @@ export function initAIPanel(
     const token = event.payload;
     if (token === null || token === undefined || token === "") return;
 
-    removeLoading();
+    clearPlanHint();
     clearGapTimer();
-
-    if (!isStreaming) {
-      isStreaming = true;
-      currentStreamContent = "";
-      const msg = createMessageEl("assistant", "");
-      messagesContainer.appendChild(msg);
-    }
+    const msgEl = ensureStreamingMessage();
 
     // Append token (preserve whitespace — don't trim!)
     currentStreamContent += token;
 
     // Progressive markdown rendering — throttled to avoid perf issues
-    const contentEl = messagesContainer.querySelector(".ai-msg-assistant:last-child .ai-msg-content");
+    const contentEl = msgEl.querySelector(".ai-msg-content");
     if (contentEl) {
       if (!markdownRenderPending) {
         markdownRenderPending = true;
@@ -895,8 +1087,7 @@ export function initAIPanel(
                       };
                       editCallbacks!.showProposedEdit(edit);
                     });
-                    const msgEl = messagesContainer.querySelector(".ai-msg-assistant:last-child");
-                    if (msgEl) msgEl.appendChild(diffBanner);
+                    msgEl.appendChild(diffBanner);
                   }
                 }
               }
@@ -913,12 +1104,9 @@ export function initAIPanel(
   // Log AI debug messages
   listen<string>("ai-log", (event) => {
     console.log("[ai:log]", event.payload);
-    // Show errors inline
-    if (event.payload?.toLowerCase().includes("error")) {
-      removeLoading();
-      const errEl = createMessageEl("system", event.payload);
-      messagesContainer.appendChild(errEl);
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    const logLine = event.payload?.trim();
+    if (logLine && /(error|failed|panic|denied|timed out|timeout)/i.test(logLine)) {
+      lastStreamError = logLine;
     }
   });
 
@@ -965,26 +1153,81 @@ export function initAIPanel(
     }
   });
 
+  function showProposedChanges(edits: ProposedEdit[], label: string = `Proposed Changes (${edits.length} file${edits.length > 1 ? "s" : ""})`) {
+    if (!editCallbacks || edits.length === 0) return;
+
+    const changesEl = document.createElement("div");
+    changesEl.className = "ai-proposed-changes fade-in";
+
+    let html = `<div class="ai-changes-header">
+      <span>${escapeHtml(label)}</span>
+      <div class="ai-changes-actions">
+        <button class="ai-changes-btn accept-all">Accept All</button>
+        <button class="ai-changes-btn reject-all">Reject All</button>
+      </div>
+    </div><div class="ai-changes-list">`;
+
+    for (const edit of edits) {
+      const name = edit.filePath.split("/").pop() || edit.filePath;
+      html += `<div class="ai-change-item" data-path="${escapeHtml(edit.filePath)}">
+        <span class="ai-change-name">${escapeHtml(name)}</span>
+        <span class="ai-change-stats">
+          <span class="stat-add">+${edit.additions}</span>
+          <span class="stat-del">-${edit.deletions}</span>
+        </span>
+      </div>`;
+    }
+    html += `</div>`;
+    changesEl.innerHTML = html;
+
+    changesEl.querySelector(".accept-all")?.addEventListener("click", async () => {
+      await editCallbacks.acceptAllEdits();
+      changesEl.remove();
+    });
+    changesEl.querySelector(".reject-all")?.addEventListener("click", () => {
+      editCallbacks.rejectAllEdits();
+      changesEl.remove();
+    });
+    changesEl.querySelectorAll(".ai-change-item").forEach((item) => {
+      item.addEventListener("click", () => {
+        const path = (item as HTMLElement).dataset.path;
+        const edit = edits.find((candidate) => candidate.filePath === path);
+        if (edit) editCallbacks.showProposedEdit(edit);
+      });
+    });
+
+    messagesContainer.appendChild(changesEl);
+    editCallbacks.showProposedEdit(edits[0]);
+  }
+
   listen<string>("ai-response-done", (event) => {
     removeLoading();
     clearGapTimer();
     isStreaming = false;
     isSending = false;
-    thinkingContent = "";
+    currentStreamToolCalls.clear();
 
+    const streamingMsg = getStreamingMessage();
+    finalizeThinkingBlock(streamingMsg);
     const responseText = currentStreamContent.trim();
 
     // Remove empty assistant bubble if no content received
     if (!responseText) {
-      const emptyMsg = messagesContainer.querySelector(".ai-msg-assistant:last-child");
+      const emptyMsg = streamingMsg;
       if (emptyMsg) {
         const content = emptyMsg.querySelector(".ai-msg-content");
-        if (content && !content.textContent?.trim()) {
+        const hasToolCalls = !!emptyMsg.querySelector(".ai-tool-call");
+        const hasThinking = !!emptyMsg.querySelector(".ai-thinking-block .ai-thinking-summary")?.textContent?.trim();
+        if (content && !content.textContent?.trim() && !hasToolCalls && !hasThinking) {
           emptyMsg.remove();
         }
       }
-      if (event.payload !== "ok") {
-        const errMsg = createMessageEl("system", "No response received. The session may have expired — try sending again.");
+      const streamError = resolveStreamError(event.payload);
+      if (streamError) {
+        const errMsg = createMessageEl("system", streamError);
+        messagesContainer.appendChild(errMsg);
+      } else if (event.payload !== "ok") {
+        const errMsg = createMessageEl("system", "No response received. Try sending again.");
         messagesContainer.appendChild(errMsg);
       }
     }
@@ -998,7 +1241,7 @@ export function initAIPanel(
       threadCallbacks?.saveMessage("assistant", responseText);
 
       // Re-render the last message as markdown
-      const lastMsg = messagesContainer.querySelector(".ai-msg-assistant:last-child .ai-msg-content");
+      const lastMsg = streamingMsg?.querySelector(".ai-msg-content");
       if (lastMsg) {
         lastMsg.innerHTML = renderMarkdown(responseText);
         linkifyFilePaths(lastMsg as HTMLElement);
@@ -1012,16 +1255,10 @@ export function initAIPanel(
       );
       if (hasPlanIndicators && !responseText.includes("```filepath:")) {
         pendingPlan = responseText;
-        input.placeholder = "Press Enter to execute plan, or type to modify...";
-        // Show hint
-        const hint = document.createElement("div");
-        hint.id = "plan-execute-hint";
-        hint.className = "plan-execute-hint fade-in";
-        hint.textContent = "Press Enter to execute plan";
-        const inputArea = document.getElementById("ai-input-area");
-        if (inputArea) inputArea.prepend(hint);
+        isPlanHintDismissed = false;
+        updatePlanHint();
       } else {
-        pendingPlan = null;
+        clearPlanHint();
       }
 
       // Parse for file edits
@@ -1034,86 +1271,22 @@ export function initAIPanel(
         );
 
         if (edits.length > 0) {
-          // Show proposed changes panel below the message
-          const changesEl = document.createElement("div");
-          changesEl.className = "ai-proposed-changes fade-in";
-
-          let html = `<div class="ai-changes-header">
-            <span>Proposed Changes (${edits.length} file${edits.length > 1 ? "s" : ""})</span>
-            <div class="ai-changes-actions">
-              <button class="ai-changes-btn accept-all">Accept All</button>
-              <button class="ai-changes-btn reject-all">Reject All</button>
-            </div>
-          </div><div class="ai-changes-list">`;
-
-          for (const edit of edits) {
-            const name = edit.filePath.split("/").pop() || edit.filePath;
-            html += `<div class="ai-change-item" data-path="${escapeHtml(edit.filePath)}">
-              <span class="ai-change-name">${escapeHtml(name)}</span>
-              <span class="ai-change-stats">
-                <span class="stat-add">+${edit.additions}</span>
-                <span class="stat-del">-${edit.deletions}</span>
-              </span>
-            </div>`;
-          }
-          html += `</div>`;
-          changesEl.innerHTML = html;
-
-          // Wire events
-          changesEl.querySelector(".accept-all")?.addEventListener("click", () => {
-            editCallbacks!.acceptAllEdits();
-            changesEl.remove();
-          });
-          changesEl.querySelector(".reject-all")?.addEventListener("click", () => {
-            editCallbacks!.rejectAllEdits();
-            changesEl.remove();
-          });
-          changesEl.querySelectorAll(".ai-change-item").forEach((item) => {
-            item.addEventListener("click", () => {
-              const path = (item as HTMLElement).dataset.path;
-              const edit = edits.find((e) => e.filePath === path);
-              if (edit) editCallbacks!.showProposedEdit(edit);
-            });
-          });
-
-          messagesContainer.appendChild(changesEl);
-
-          // Also show first edit in editor
-          editCallbacks.showProposedEdit(edits[0]);
+          showProposedChanges(edits);
         } else if (currentProvider === "codex" && root) {
-          // Codex edits files directly — check git for changes and offer review
-          invoke("git_status", { workingDir: root }).then((status: any) => {
-            const total = (status?.modified || 0) + (status?.added || 0) + (status?.deleted || 0);
-            if (total > 0) {
-              const reviewEl = document.createElement("div");
-              reviewEl.className = "ai-proposed-changes fade-in";
-              reviewEl.innerHTML = `
-                <div class="ai-changes-header">
-                  <span>Codex made ${total} file change${total > 1 ? "s" : ""}</span>
-                  <div class="ai-changes-actions">
-                    <button class="ai-changes-btn accept-all" id="codex-accept">Keep Changes</button>
-                    <button class="ai-changes-btn reject-all" id="codex-revert">Revert All</button>
-                  </div>
-                </div>
-              `;
-              reviewEl.querySelector("#codex-accept")?.addEventListener("click", () => {
-                reviewEl.remove();
-              });
-              reviewEl.querySelector("#codex-revert")?.addEventListener("click", async () => {
-                try {
-                  await invoke("git_checkout_files", { workingDir: root });
-                } catch {
-                  // Fallback: git checkout .
-                  await invoke("terminal_exec", {
-                    command: "git checkout .",
-                    workingDir: root,
-                    terminalId: "revert",
-                  });
-                }
-                reviewEl.remove();
-              });
-              messagesContainer.appendChild(reviewEl);
-              messagesContainer.scrollTop = messagesContainer.scrollHeight;
+          invoke<any[]>("git_changed_files", { workingDir: root }).then((files) => {
+            const directEdits = files.map((file) => ({
+              filePath: `${root}/${file.path}`,
+              originalContent: file.original_content || "",
+              newContent: file.current_content || "",
+              additions: file.additions || 0,
+              deletions: file.deletions || 0,
+            } satisfies ProposedEdit)).filter((edit) => edit.originalContent !== edit.newContent);
+
+            if (directEdits.length > 0) {
+              showProposedChanges(
+                directEdits,
+                `Codex changed ${directEdits.length} file${directEdits.length > 1 ? "s" : ""}`,
+              );
             }
           }).catch(() => {});
         }
@@ -1127,7 +1300,10 @@ export function initAIPanel(
     sendBtn.removeAttribute("disabled");
     input.removeAttribute("disabled");
     input.focus();
+    updateReplyBar();
     currentStreamContent = "";
+    currentThinkingContent = "";
+    lastStreamError = null;
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
   });
 
@@ -1153,7 +1329,7 @@ export function initAIPanel(
     }
   }
 
-  function sendMessage() {
+  async function sendMessage() {
     const text = input.value.trim();
     if (!text || isStreaming || isSending) return;
 
@@ -1162,26 +1338,40 @@ export function initAIPanel(
       const cmd = text.split(" ")[0].toLowerCase();
       if (cmd === "/init") {
         input.value = "";
-        handleSlashInit();
+        await handleSlashInit();
         return;
       } else if (cmd === "/clear") {
         input.value = "";
         messagesContainer.innerHTML = "";
         messages.length = 0;
         currentStreamContent = "";
+        currentThinkingContent = "";
+        replyTarget = null;
+        updateReplyBar();
+        clearPlanHint();
         return;
       }
     }
 
     isSending = true;
+    clearPlanHint();
+    lastStreamError = null;
+
+    const activeThreadId = await threadCallbacks?.ensureActiveThread();
+    const sentAttachments = attachedImages.map((img) => ({ name: img.name, dataUrl: img.dataUrl }));
+    const sentReplyTarget = replyTarget;
+    const composedPrompt = buildPrompt(text);
 
     // Add user message
     messages.push({ role: "user", content: text, timestamp: Date.now() });
-    threadCallbacks?.saveMessage("user", text);
-    // Lock thread to current provider on first message
-    const tid = threadCallbacks?.getActiveThreadId();
-    if (tid) setThreadProvider(tid, currentProvider);
-    const msg = createMessageEl("user", text);
+    await threadCallbacks?.saveMessage("user", text);
+    if (activeThreadId) {
+      await setThreadProvider(activeThreadId, currentProvider);
+    }
+    const msg = createMessageEl("user", text, {
+      attachments: sentAttachments,
+      replyTo: sentReplyTarget || undefined,
+    });
     messagesContainer.appendChild(msg);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
 
@@ -1207,15 +1397,18 @@ export function initAIPanel(
     // Clear images after sending
     attachedImages = [];
     renderImagePreview();
+    replyTarget = null;
+    updateReplyBar();
+    currentStreamToolCalls.clear();
 
-    threadCallbacks?.saveModelAndPermission(modelVal, permVal);
+    await threadCallbacks?.saveModelAndPermission(modelVal, permVal);
 
     invoke("ai_chat", {
-      prompt: projectContext ? `${projectContext}\n\n${text}` : text,
+      prompt: projectContext ? `${projectContext}\n\n${composedPrompt}` : composedPrompt,
       workingDir: rootPath,
       contextFiles: openFiles,
       provider: currentProvider,
-      sessionId: threadCallbacks?.getSessionId() || null,
+      sessionId: (activeThreadId && threadCallbacks?.getSessionId()) || null,
       model: modelVal,
       images: imagePaths,
       permissionMode: permVal,
@@ -1224,6 +1417,8 @@ export function initAIPanel(
       removeLoading();
       isSending = false;
       isStreaming = false;
+      finalizeThinkingBlock();
+      currentThinkingContent = "";
       const errMsg = createMessageEl("system", `Error: ${err}`);
       messagesContainer.appendChild(errMsg);
       statusEl.textContent = "Error";
@@ -1285,6 +1480,17 @@ export function initAIPanel(
       permBtn.innerHTML = `${permOpt.label} <span class="dropdown-caret">&#9662;</span>`;
     }
   };
+  (panel as any)._setProvider = (provider: string) => {
+    const nextProvider = provider === "codex" ? "codex" : "claude";
+    currentProvider = nextProvider;
+    activeProviderName = nextProvider === "codex" ? "Codex" : "Claude";
+    providerBtns.forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.provider === nextProvider);
+    });
+    switchProviderConfig(nextProvider);
+    updateReplyBar();
+    checkProvider(statusEl, nextProvider);
+  };
 }
 
 async function checkProvider(statusEl: HTMLElement, provider: string) {
@@ -1302,6 +1508,10 @@ async function checkProvider(statusEl: HTMLElement, provider: string) {
 
 /** Make file paths in <code> elements clickable to open in editor */
 function linkifyFilePaths(container: HTMLElement) {
+  const openFilePath = (path: string) => {
+    window.dispatchEvent(new CustomEvent("zauri-open-file", { detail: { path } }));
+  };
+
   // Match inline <code> elements (not inside <pre>)
   container.querySelectorAll("code").forEach((codeEl) => {
     if (codeEl.closest("pre")) return; // Skip code blocks
@@ -1321,8 +1531,18 @@ function linkifyFilePaths(container: HTMLElement) {
 
     codeEl.classList.add("file-link");
     codeEl.title = `Open ${text}`;
-    codeEl.addEventListener("click", () => {
-      window.dispatchEvent(new CustomEvent("zauri-open-file", { detail: { path: text } }));
+    codeEl.addEventListener("click", () => openFilePath(text));
+  });
+
+  container.querySelectorAll("a").forEach((linkEl) => {
+    const href = linkEl.getAttribute("href") || "";
+    const text = (linkEl.textContent || "").trim();
+    const target = href.startsWith("#") ? text : href;
+    if (!/^[\w.\-\/\\]+\.\w{1,10}$/.test(target) && !target.includes("/")) return;
+    linkEl.classList.add("file-link");
+    linkEl.addEventListener("click", (event) => {
+      event.preventDefault();
+      openFilePath(target);
     });
   });
 }
@@ -1337,7 +1557,11 @@ function renderMarkdown(text: string): string {
 // Track current provider name globally for message headers
 let activeProviderName = "Claude";
 
-function createMessageEl(role: string, content: string): HTMLElement {
+export function createMessageEl(
+  role: string,
+  content: string,
+  options?: { attachments?: MessageAttachment[]; replyTo?: ReplyTarget },
+): HTMLElement {
   const el = document.createElement("div");
   el.className = `ai-msg ai-msg-${role} fade-in`;
 
@@ -1372,6 +1596,26 @@ function createMessageEl(role: string, content: string): HTMLElement {
     }
   }
 
+  const replyEl = options?.replyTo ? document.createElement("div") : null;
+  if (replyEl && options?.replyTo) {
+    replyEl.className = "ai-msg-reply";
+    replyEl.innerHTML = `
+      <span class="ai-msg-reply-label">Replying to ${options.replyTo.role === "assistant" ? activeProviderName : "you"}</span>
+      <span class="ai-msg-reply-text">${escapeHtml(options.replyTo.content.replace(/\s+/g, " ").slice(0, 160))}${options.replyTo.content.length > 160 ? "..." : ""}</span>
+    `;
+  }
+
+  const attachmentsEl = options?.attachments?.length ? document.createElement("div") : null;
+  if (attachmentsEl && options?.attachments) {
+    attachmentsEl.className = "ai-msg-attachments";
+    attachmentsEl.innerHTML = options.attachments.map((attachment) => `
+      <div class="ai-msg-attachment">
+        ${attachment.dataUrl ? `<img src="${attachment.dataUrl}" alt="${escapeHtml(attachment.name)}" />` : ""}
+        <span>${escapeHtml(attachment.name)}</span>
+      </div>
+    `).join("");
+  }
+
   // Hover actions
   const actions = document.createElement("div");
   actions.className = "ai-msg-actions";
@@ -1379,6 +1623,7 @@ function createMessageEl(role: string, content: string): HTMLElement {
     <button class="msg-action-btn" title="Copy" data-action="copy">
       <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><rect x="5" y="5" width="8" height="8" rx="1" stroke="currentColor" stroke-width="1.2"/><path d="M3 11V3h8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
     </button>
+    ${role !== "system" ? '<button class="msg-action-btn" title="Reply to this" data-action="reply"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6.5 4.5L2.5 8l4 3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 8h5.5a4.5 4.5 0 014.5 4.5V13" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></button>' : ""}
     ${role === "user" ? '<button class="msg-action-btn" title="Retry" data-action="retry"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 8a6 6 0 0110.5-4M14 8a6 6 0 01-10.5 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M12 1v3.5h-3.5M4 15v-3.5h3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>' : ""}
     <button class="msg-action-btn" title="Delete" data-action="delete">
       <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
@@ -1393,6 +1638,10 @@ function createMessageEl(role: string, content: string): HTMLElement {
       navigator.clipboard.writeText(content || body.textContent || "");
       btn.title = "Copied!";
       setTimeout(() => (btn.title = "Copy"), 1500);
+    } else if (action === "reply") {
+      window.dispatchEvent(new CustomEvent("zauri-ai-reply", {
+        detail: { role, content },
+      }));
     } else if (action === "delete") {
       el.remove();
     } else if (action === "retry") {
@@ -1407,7 +1656,9 @@ function createMessageEl(role: string, content: string): HTMLElement {
   });
 
   el.appendChild(headerRow);
+  if (replyEl) el.appendChild(replyEl);
   el.appendChild(body);
+  if (attachmentsEl) el.appendChild(attachmentsEl);
   el.appendChild(actions);
   return el;
 }

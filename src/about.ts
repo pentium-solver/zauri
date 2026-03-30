@@ -22,7 +22,7 @@ export function showAbout() {
     <div class="settings-scroll">
       <div class="about-hero">
         <h1 class="about-logo">Zauri</h1>
-        <span class="about-ver" id="about-version">v0.5.0</span>
+        <span class="about-ver" id="about-version">v0.6.5</span>
         <p class="about-tagline">A lightweight, fast code editor with AI assistance.</p>
       </div>
 

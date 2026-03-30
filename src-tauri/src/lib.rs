@@ -1,8 +1,9 @@
 mod lsp;
 
+use base64::Engine;
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Command, Stdio};
@@ -87,6 +88,33 @@ fn write_file(path: String, content: String) -> Result<(), String> {
     eprintln!("[perf] write_file({}) = {:.2}ms ({} bytes)", path, duration, data.len());
 
     Ok(())
+}
+
+#[tauri::command]
+fn write_temp_image(name: String, data_url: String) -> Result<String, String> {
+    let (_, encoded) = data_url
+        .split_once(',')
+        .ok_or_else(|| "Invalid image data URL".to_string())?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|e| e.to_string())?;
+
+    let ext = std::path::Path::new(&name)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("png");
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!(
+        "zauri-img-{}-{}.{}",
+        std::process::id(),
+        stamp,
+        ext
+    ));
+    std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -281,6 +309,15 @@ struct GitStatus {
     is_repo: bool,
 }
 
+#[derive(Serialize)]
+struct GitChangedFile {
+    path: String,
+    original_content: String,
+    current_content: String,
+    additions: usize,
+    deletions: usize,
+}
+
 #[tauri::command]
 fn git_status(working_dir: String) -> Result<GitStatus, String> {
     // Check if it's a git repo
@@ -343,6 +380,192 @@ fn git_status(working_dir: String) -> Result<GitStatus, String> {
         behind,
         is_repo: true,
     })
+}
+
+fn diff_stats(original: &str, current: &str) -> (usize, usize) {
+    let old_lines: std::collections::HashSet<&str> = original.lines().collect();
+    let new_lines: std::collections::HashSet<&str> = current.lines().collect();
+    let additions = current.lines().filter(|line| !old_lines.contains(line)).count();
+    let deletions = original.lines().filter(|line| !new_lines.contains(line)).count();
+    (additions, deletions)
+}
+
+#[tauri::command]
+fn git_changed_files(working_dir: String) -> Result<Vec<GitChangedFile>, String> {
+    if run_git(&working_dir, &["rev-parse", "--is-inside-work-tree"]).is_err() {
+        return Ok(Vec::new());
+    }
+
+    let has_head = run_git(&working_dir, &["rev-parse", "--verify", "HEAD"]).is_ok();
+    let mut changed_paths: Vec<String> = Vec::new();
+
+    if has_head {
+        let diff = run_git(&working_dir, &["diff", "--name-only", "HEAD", "--"]).unwrap_or_default();
+        for line in diff.lines() {
+            let path = line.trim();
+            if !path.is_empty() {
+                changed_paths.push(path.to_string());
+            }
+        }
+    }
+
+    let untracked = run_git(
+        &working_dir,
+        &["ls-files", "--others", "--exclude-standard"],
+    )
+    .unwrap_or_default();
+    for line in untracked.lines() {
+        let path = line.trim();
+        if !path.is_empty() {
+            changed_paths.push(path.to_string());
+        }
+    }
+
+    changed_paths.sort();
+    changed_paths.dedup();
+
+    let mut result = Vec::new();
+    for relative_path in changed_paths {
+        let full_path = std::path::Path::new(&working_dir).join(&relative_path);
+        let current_content = std::fs::read_to_string(&full_path).unwrap_or_default();
+        let original_content = if has_head {
+            run_git(&working_dir, &["show", &format!("HEAD:{}", relative_path)]).unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let (additions, deletions) = diff_stats(&original_content, &current_content);
+        result.push(GitChangedFile {
+            path: relative_path,
+            original_content,
+            current_content,
+            additions,
+            deletions,
+        });
+    }
+
+    Ok(result)
+}
+
+fn emit_tool_call(
+    app: &tauri::AppHandle,
+    name: &str,
+    input: String,
+    status: &str,
+) {
+    let payload = serde_json::json!({
+        "name": name,
+        "input": input,
+        "status": status,
+    });
+    let _ = app.emit("ai-tool-call", payload.to_string());
+}
+
+fn emit_text_chunk(app: &tauri::AppHandle, text: &str, emitted_text: &mut bool) {
+    if text.is_empty() {
+        return;
+    }
+    *emitted_text = true;
+    let _ = app.emit("ai-response-chunk", text);
+}
+
+fn emit_thinking_chunk(app: &tauri::AppHandle, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    let _ = app.emit("ai-thinking-chunk", text);
+}
+
+fn collect_json_text(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(text) => {
+            if text.trim().is_empty() {
+                None
+            } else {
+                Some(text.clone())
+            }
+        }
+        serde_json::Value::Array(items) => {
+            let joined = items
+                .iter()
+                .filter_map(collect_json_text)
+                .collect::<Vec<_>>()
+                .join("");
+            if joined.trim().is_empty() {
+                None
+            } else {
+                Some(joined)
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for key in ["text", "delta", "content", "summary", "reasoning", "message"] {
+                if let Some(value) = map.get(key) {
+                    if let Some(text) = collect_json_text(value) {
+                        return Some(text);
+                    }
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn event_looks_like_reasoning(event_type: &str, event: &serde_json::Value) -> bool {
+    let mut labels = vec![event_type.to_ascii_lowercase()];
+
+    if let Some(value) = event
+        .get("item")
+        .and_then(|item| item.get("type").or_else(|| item.get("kind")))
+        .and_then(|value| value.as_str())
+    {
+        labels.push(value.to_ascii_lowercase());
+    }
+
+    if let Some(value) = event
+        .get("item_type")
+        .and_then(|value| value.as_str())
+    {
+        labels.push(value.to_ascii_lowercase());
+    }
+
+    if let Some(value) = event
+        .get("delta")
+        .and_then(|delta| delta.get("type"))
+        .and_then(|value| value.as_str())
+    {
+        labels.push(value.to_ascii_lowercase());
+    }
+
+    if let Some(value) = event
+        .get("part")
+        .and_then(|part| part.get("type"))
+        .and_then(|value| value.as_str())
+    {
+        labels.push(value.to_ascii_lowercase());
+    }
+
+    labels
+        .iter()
+        .any(|label| label.contains("reason") || label.contains("think"))
+}
+
+fn extract_codex_event_text(event: &serde_json::Value) -> Option<String> {
+    for key in ["text", "delta", "item", "part", "content", "message"] {
+        if let Some(value) = event.get(key) {
+            if let Some(text) = collect_json_text(value) {
+                return Some(text);
+            }
+        }
+    }
+    None
+}
+
+fn emit_done(app: &tauri::AppHandle, done_emitted: &mut bool, payload: String) {
+    if *done_emitted {
+        return;
+    }
+    let _ = app.emit("ai-response-done", payload);
+    *done_emitted = true;
 }
 
 #[derive(Serialize)]
@@ -521,12 +744,16 @@ fn ai_chat(
 
     full_prompt.push_str(&prompt);
 
-    // Append image references
-    if let Some(ref imgs) = images {
-        if !imgs.is_empty() {
-            full_prompt.push_str("\n\nThe user has attached the following image(s). Use the Read tool to view them:\n");
-            for img_path in imgs {
-                full_prompt.push_str(&format!("- {}\n", img_path));
+    // Append image references for providers that don't support native image attachments.
+    if provider != "codex" {
+        if let Some(ref imgs) = images {
+            if !imgs.is_empty() {
+                full_prompt.push_str(
+                    "\n\nThe user has attached the following image(s). Use the Read tool to view them:\n",
+                );
+                for img_path in imgs {
+                    full_prompt.push_str(&format!("- {}\n", img_path));
+                }
             }
         }
     }
@@ -575,6 +802,13 @@ fn ai_chat(
     let app_handle = app.clone();
     let want_thinking = stream_thinking.unwrap_or(false);
     std::thread::spawn(move || {
+        let codex_with_images = provider == "codex"
+            && images
+                .as_ref()
+                .map(|paths| !paths.is_empty())
+                .unwrap_or(false);
+        let mut output_last_message_path: Option<std::path::PathBuf> = None;
+
         // Claude CLI --print --output-format stream-json sends JSON lines:
         //   {type:"system"} -> init
         //   {type:"assistant", message:{content:[{text:"..."}]}} -> response text
@@ -590,14 +824,53 @@ fn ai_chat(
                 // Sandbox/approval mode
                 match permission_mode.as_deref() {
                     Some("never") => codex_args.push("--dangerously-bypass-approvals-and-sandbox".to_string()),
-                    Some("untrusted") | Some("on-request") => {
+                    Some("untrusted") => {
+                        codex_args.push("-a".to_string());
+                        codex_args.push("untrusted".to_string());
+                    }
+                    Some("on-request") => {
+                        codex_args.push("-a".to_string());
+                        codex_args.push("on-request".to_string());
+                    }
+                    Some("full-auto") => codex_args.push("--full-auto".to_string()),
+                    Some("never-ask") => {
+                        codex_args.push("-a".to_string());
+                        codex_args.push("never".to_string());
+                    }
+                    Some("on-failure") => {
+                        codex_args.push("-a".to_string());
+                        codex_args.push("on-failure".to_string());
+                    }
+                    Some(_) => {
                         // No --full-auto: codex exec runs with default approval
                     }
-                    _ => codex_args.push("--full-auto".to_string()),
+                    None => codex_args.push("--full-auto".to_string()),
+                }
+                codex_args.push("-C".to_string());
+                codex_args.push(working_dir.clone());
+                codex_args.push("-c".to_string());
+                codex_args.push(format!(
+                    "hide_agent_reasoning={}",
+                    if want_thinking { "false" } else { "true" }
+                ));
+                if want_thinking {
+                    codex_args.push("-c".to_string());
+                    codex_args.push("model_reasoning_summary=\"detailed\"".to_string());
                 }
                 if let Some(ref m) = model {
                     codex_args.push("-m".to_string());
                     codex_args.push(m.clone());
+                }
+                if let Some(ref imgs) = images {
+                    let mut extra_dirs = HashSet::new();
+                    for img_path in imgs {
+                        if let Some(parent) = std::path::Path::new(img_path).parent() {
+                            if extra_dirs.insert(parent.to_path_buf()) {
+                                codex_args.push("--add-dir".to_string());
+                                codex_args.push(parent.to_string_lossy().to_string());
+                            }
+                        }
+                    }
                 }
                 // Add images
                 if let Some(ref imgs) = images {
@@ -605,6 +878,19 @@ fn ai_chat(
                         codex_args.push("-i".to_string());
                         codex_args.push(img_path.clone());
                     }
+                }
+                if codex_with_images {
+                    let output_path = std::env::temp_dir().join(format!(
+                        "zauri-codex-last-message-{}-{}.txt",
+                        std::process::id(),
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_nanos()
+                    ));
+                    codex_args.push("-o".to_string());
+                    codex_args.push(output_path.to_string_lossy().to_string());
+                    output_last_message_path = Some(output_path);
                 }
                 codex_args.push(full_prompt.clone());
                 (
@@ -672,14 +958,19 @@ fn ai_chat(
                     }
                 }
 
+                let last_stderr = Arc::new(Mutex::new(String::new()));
                 // Stream stderr in background for logging
                 if let Some(stderr) = child.stderr.take() {
                     let stderr_app = app_handle.clone();
+                    let stderr_state = Arc::clone(&last_stderr);
                     std::thread::spawn(move || {
                         let reader = BufReader::new(stderr);
                         for line in reader.lines().map_while(Result::ok) {
                             let trimmed = line.trim().to_string();
                             if !trimmed.is_empty() {
+                                if let Ok(mut last) = stderr_state.lock() {
+                                    *last = trimmed.clone();
+                                }
                                 eprintln!("[ai:stderr] {}", trimmed);
                                 // Also emit to frontend for visibility
                                 let _ = stderr_app.emit("ai-log", &trimmed);
@@ -689,6 +980,9 @@ fn ai_chat(
                 }
 
                 let mut got_result = false;
+                let mut done_emitted = false;
+                let mut emitted_text = false;
+                let defer_done_until_exit = output_last_message_path.is_some();
                 if let Some(stdout) = child.stdout.take() {
                     let reader = BufReader::new(stdout);
                     for line in reader.lines().map_while(Result::ok) {
@@ -708,7 +1002,22 @@ fn ai_chat(
                                         .and_then(|e| e.get("type"))
                                         .and_then(|t| t.as_str());
 
-                                    if inner_type == Some("content_block_delta") {
+                                    if inner_type == Some("content_block_start") {
+                                        if let Some(content_block) = event.get("event").and_then(|e| e.get("content_block")) {
+                                            let block_type = content_block.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                                            if block_type == "tool_use" {
+                                                let name = content_block
+                                                    .get("name")
+                                                    .and_then(|value| value.as_str())
+                                                    .unwrap_or("tool");
+                                                let input = content_block
+                                                    .get("input")
+                                                    .map(|value| value.to_string())
+                                                    .unwrap_or_default();
+                                                emit_tool_call(&app_handle, name, input, "running");
+                                            }
+                                        }
+                                    } else if inner_type == Some("content_block_delta") {
                                         let delta = event.get("event").and_then(|e| e.get("delta"));
                                         let delta_type = delta.and_then(|d| d.get("type")).and_then(|t| t.as_str());
 
@@ -757,7 +1066,7 @@ fn ai_chat(
                                     }
 
                                     got_result = true;
-                                    let _ = app_handle.emit("ai-response-done", "ok");
+                                    emit_done(&app_handle, &mut done_emitted, "ok".to_string());
                                 }
                                 Some("rate_limit_event") => {
                                     if let Some(info) = event.get("rate_limit_info") {
@@ -791,34 +1100,100 @@ fn ai_chat(
                                             eprintln!("[ai] {}", msg);
                                             let _ = app_handle.emit("ai-response-chunk", &msg);
                                             got_result = true;
-                                            let _ = app_handle.emit("ai-response-done", "error");
+                                            emit_done(&app_handle, &mut done_emitted, msg);
                                         }
                                     }
                                 }
 
                                 // ---- Codex events (--json JSONL) ----
-                                Some("item.completed") => {
-                                    // Codex complete message chunk — may arrive multiple times
-                                    if let Some(text) = event
-                                        .get("item")
-                                        .and_then(|i| i.get("text"))
-                                        .and_then(|t| t.as_str())
-                                    {
-                                        if !text.is_empty() {
-                                            // Emit with trailing space to prevent run-on
-                                            let _ = app_handle.emit("ai-response-chunk", text);
+                                Some("item.started") | Some("item.completed") => {
+                                    if let Some(item) = event.get("item") {
+                                        let item_type = item
+                                            .get("type")
+                                            .or_else(|| item.get("kind"))
+                                            .and_then(|value| value.as_str())
+                                            .unwrap_or("");
+                                        let looks_like_tool = item_type.contains("tool")
+                                            || item.get("tool_name").is_some()
+                                            || item.get("call_id").is_some();
+                                        if looks_like_tool {
+                                            let name = item
+                                                .get("tool_name")
+                                                .or_else(|| item.get("name"))
+                                                .and_then(|value| value.as_str())
+                                                .unwrap_or("tool");
+                                            let input = item
+                                                .get("arguments")
+                                                .or_else(|| item.get("input"))
+                                                .map(|value| value.to_string())
+                                                .unwrap_or_default();
+                                            let status = if event_type == Some("item.started") {
+                                                "running"
+                                            } else {
+                                                "completed"
+                                            };
+                                            emit_tool_call(&app_handle, name, input, status);
+                                        }
+                                        if event_type == Some("item.completed") {
+                                            if let Some(text) = collect_json_text(item) {
+                                                if item_type.contains("reasoning") {
+                                                    if want_thinking {
+                                                        emit_thinking_chunk(&app_handle, &text);
+                                                    }
+                                                } else if item_type.contains("message") || item_type.is_empty() {
+                                                    emit_text_chunk(&app_handle, &text, &mut emitted_text);
+                                                }
+                                            }
                                         }
                                     }
                                 }
-                                Some("item.content_delta") => {
-                                    // Codex streaming delta
+                                Some("agent_message_delta") => {
                                     if let Some(text) = event
                                         .get("delta")
-                                        .and_then(|d| d.get("text"))
                                         .or_else(|| event.get("text"))
                                         .and_then(|t| t.as_str())
                                     {
-                                        let _ = app_handle.emit("ai-response-chunk", text);
+                                        emit_text_chunk(&app_handle, text, &mut emitted_text);
+                                    }
+                                }
+                                Some("agent_message") => {
+                                    if let Some(text) = event.get("text").and_then(|t| t.as_str()) {
+                                        emit_text_chunk(&app_handle, text, &mut emitted_text);
+                                    }
+                                }
+                                Some("item.delta") | Some("item.content_delta") => {
+                                    if let Some(text) = extract_codex_event_text(&event) {
+                                        if event_looks_like_reasoning(event_type.unwrap_or(""), &event) {
+                                            if want_thinking {
+                                                emit_thinking_chunk(&app_handle, &text);
+                                            }
+                                        } else {
+                                            emit_text_chunk(&app_handle, &text, &mut emitted_text);
+                                        }
+                                    }
+                                }
+                                Some("response.output_text.delta")
+                                | Some("response.output_text.done")
+                                | Some("response.reasoning_summary_text.delta")
+                                | Some("response.reasoning_summary_text.done")
+                                | Some("response.reasoning.delta")
+                                | Some("response.reasoning.done") => {
+                                    if let Some(text) = extract_codex_event_text(&event) {
+                                        if event_looks_like_reasoning(event_type.unwrap_or(""), &event) {
+                                            if want_thinking {
+                                                emit_thinking_chunk(&app_handle, &text);
+                                            }
+                                        } else {
+                                            emit_text_chunk(&app_handle, &text, &mut emitted_text);
+                                        }
+                                    }
+                                }
+                                Some("response.completed") => {
+                                    if !got_result {
+                                        got_result = true;
+                                    }
+                                    if !defer_done_until_exit {
+                                        emit_done(&app_handle, &mut done_emitted, "ok".to_string());
                                     }
                                 }
                                 Some("turn.completed") => {
@@ -834,13 +1209,36 @@ fn ai_chat(
                                         let _ = app_handle.emit("ai-usage", usage_data.to_string());
                                     }
                                     got_result = true;
-                                    let _ = app_handle.emit("ai-response-done", "ok");
+                                    if !defer_done_until_exit {
+                                        emit_done(&app_handle, &mut done_emitted, "ok".to_string());
+                                    }
                                 }
                                 Some("session.completed") | Some("agent.completed") => {
                                     if !got_result {
                                         got_result = true;
-                                        let _ = app_handle.emit("ai-response-done", "ok");
                                     }
+                                    if !defer_done_until_exit {
+                                        emit_done(&app_handle, &mut done_emitted, "ok".to_string());
+                                    }
+                                }
+                                Some("turn.failed") | Some("session.failed") | Some("agent.failed") => {
+                                    let msg = event
+                                        .get("error")
+                                        .and_then(|value| {
+                                            value
+                                                .get("message")
+                                                .and_then(|message| message.as_str())
+                                                .or_else(|| value.as_str())
+                                        })
+                                        .unwrap_or("Codex request failed")
+                                        .to_string();
+                                    emit_text_chunk(
+                                        &app_handle,
+                                        &format!("Error: {}", msg),
+                                        &mut emitted_text,
+                                    );
+                                    got_result = true;
+                                    emit_done(&app_handle, &mut done_emitted, msg);
                                 }
                                 Some("error") => {
                                     let msg = event.get("message")
@@ -858,13 +1256,20 @@ fn ai_chat(
                                         || msg.to_lowercase().contains("too many requests");
 
                                     if is_rate_limit {
-                                        let _ = app_handle.emit("ai-response-chunk",
-                                            "Rate limit reached. Please wait before sending another message.");
+                                        emit_text_chunk(
+                                            &app_handle,
+                                            "Rate limit reached. Please wait before sending another message.",
+                                            &mut emitted_text,
+                                        );
                                     } else {
-                                        let _ = app_handle.emit("ai-response-chunk", &format!("Error: {}", msg));
+                                        emit_text_chunk(
+                                            &app_handle,
+                                            &format!("Error: {}", msg),
+                                            &mut emitted_text,
+                                        );
                                     }
                                     got_result = true;
-                                    let _ = app_handle.emit("ai-response-done", "error");
+                                    emit_done(&app_handle, &mut done_emitted, msg.to_string());
                                 }
 
                                 _ => {
@@ -877,8 +1282,8 @@ fn ai_chat(
                         } else {
                             // Raw text (non-JSON) — from codex or fallback
                             let t = trimmed.trim();
-                            if !t.is_empty() {
-                                let _ = app_handle.emit("ai-response-chunk", t);
+                            if !t.is_empty() && output_last_message_path.is_none() {
+                                emit_text_chunk(&app_handle, t, &mut emitted_text);
                             }
                         }
                     }
@@ -892,23 +1297,55 @@ fn ai_chat(
 
                 match child.wait() {
                     Ok(status) => {
-                        if !got_result {
-                            let _ = app_handle.emit(
-                                "ai-response-done",
-                                if status.success() { "ok" } else { "error" },
-                            );
+                        if status.success() && !emitted_text {
+                            if let Some(output_path) = output_last_message_path.as_ref() {
+                                if let Ok(text) = std::fs::read_to_string(output_path) {
+                                    let trimmed = text.trim();
+                                    if !trimmed.is_empty() {
+                                        emit_text_chunk(&app_handle, trimmed, &mut emitted_text);
+                                    }
+                                }
+                            }
+                        }
+                        if !done_emitted {
+                            let stderr_message = last_stderr
+                                .lock()
+                                .map(|value| value.clone())
+                                .unwrap_or_default();
+                            if status.success() {
+                                if defer_done_until_exit && !emitted_text {
+                                    emit_done(
+                                        &app_handle,
+                                        &mut done_emitted,
+                                        "Codex completed without a final message.".to_string(),
+                                    );
+                                } else {
+                                    emit_done(&app_handle, &mut done_emitted, "ok".to_string());
+                                }
+                            } else if !stderr_message.is_empty() {
+                                emit_done(&app_handle, &mut done_emitted, stderr_message);
+                            } else if got_result {
+                                emit_done(
+                                    &app_handle,
+                                    &mut done_emitted,
+                                    "The request failed before a final response was produced.".to_string(),
+                                );
+                            } else {
+                                emit_done(
+                                    &app_handle,
+                                    &mut done_emitted,
+                                    format!("{} exited with status {}", cmd, status),
+                                );
+                            }
                         }
                     }
                     Err(e) => {
-                        let _ = app_handle.emit("ai-response-done", &format!("error: {}", e));
+                        emit_done(&app_handle, &mut done_emitted, format!("error: {}", e));
                     }
                 }
             }
             Err(e) => {
-                let _ = app_handle.emit(
-                    "ai-response-done",
-                    &format!("Failed to start {} CLI: {}", cmd, e),
-                );
+                let _ = app_handle.emit("ai-response-done", format!("Failed to start {} CLI: {}", cmd, e));
             }
         }
     });
@@ -1098,8 +1535,11 @@ fn ai_cancel() -> Result<(), String> {
                 .args(["/F", "/T", "/PID", &p.to_string()])
                 .output();
         } else {
+            let _ = Command::new("pkill")
+                .args(["-TERM", "-P", &p.to_string()])
+                .output();
             let _ = Command::new("kill")
-                .args(["-TERM", &format!("-{}", p)])
+                .args(["-TERM", &p.to_string()])
                 .output();
         }
         Ok(())
@@ -1156,6 +1596,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             read_file,
             write_file,
+            write_temp_image,
             list_directory,
             search_files,
             get_startup_time,
@@ -1164,6 +1605,7 @@ pub fn run() {
             load_settings,
             save_settings,
             git_status,
+            git_changed_files,
             git_branches,
             git_checkout,
             git_create_branch,

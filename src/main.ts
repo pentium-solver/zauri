@@ -7,18 +7,28 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { searchKeymap } from "@codemirror/search";
 import { getFileIcon, getFolderIcon, chevronRight, chevronDown } from "./icons";
 import { getLanguageExtension } from "./languages";
-import { createAIPanel, initAIPanel, toggleAIPanel } from "./ai-panel";
+import { createAIPanel, initAIPanel, toggleAIPanel, createMessageEl } from "./ai-panel";
 import { createTerminalPanel, initTerminal, toggleTerminal } from "./terminal";
 import { initGitStatus, showBranchSelector, toggleGitPanel, refreshStatus } from "./git";
 import { loadSettingsFromDisk, showSettings } from "./settings";
 import { showAbout } from "./about";
 import { checkForUpdates } from "./updater";
 import { registerCommands, showCommandPalette } from "./command-palette";
-import { isPreviewable, showPreview, updatePreviewContent, hidePreview, isPreviewOpen, getPreviewPath } from "./preview";
+import {
+  isPreviewable,
+  showPreview,
+  updatePreviewContent,
+  hidePreview,
+  isPreviewOpen,
+  getPreviewPath,
+  setPreviewRootPath,
+} from "./preview";
 import { minimapExtension } from "./minimap";
+import { formatShortcut } from "./shortcuts";
 import {
   loadProjects,
   createProject,
+  findProjectByRoot,
   getProjects,
   getThreadsForProject,
   createThread,
@@ -437,24 +447,24 @@ function showWelcome() {
         </div>
         <div class="welcome-shortcuts">
           <div class="welcome-shortcut featured">
-            <span class="shortcut-key">\u2318 L</span>
+            <span class="shortcut-key">${formatShortcut("Cmd+L", true)}</span>
             <span class="shortcut-label">AI assistant</span>
             <span class="shortcut-badge">NEW</span>
           </div>
           <div class="welcome-shortcut">
-            <span class="shortcut-key">\u2318 O</span>
+            <span class="shortcut-key">${formatShortcut("Cmd+O", true)}</span>
             <span class="shortcut-label">Open folder</span>
           </div>
           <div class="welcome-shortcut">
-            <span class="shortcut-key">\u2318 \u21E7 F</span>
+            <span class="shortcut-key">${formatShortcut("Cmd+Shift+F", true)}</span>
             <span class="shortcut-label">Search in files</span>
           </div>
           <div class="welcome-shortcut">
-            <span class="shortcut-key">\u2318 \`</span>
+            <span class="shortcut-key">${formatShortcut("Cmd+`", true)}</span>
             <span class="shortcut-label">Terminal</span>
           </div>
           <div class="welcome-shortcut">
-            <span class="shortcut-key">\u2318 \u21E7 G</span>
+            <span class="shortcut-key">${formatShortcut("Cmd+Shift+G", true)}</span>
             <span class="shortcut-label">Git</span>
           </div>
         </div>
@@ -603,6 +613,7 @@ async function openFolder() {
   const selected = await open({ directory: true, multiple: false });
   if (selected && typeof selected === "string") {
     rootPath = selected;
+    setPreviewRootPath(rootPath);
     fileTree.innerHTML = "";
     await loadDirectory(selected, fileTree);
     // Update titlebar
@@ -617,6 +628,7 @@ async function openFolder() {
 
 async function openProjectFolder(workspaceRoot: string) {
   rootPath = workspaceRoot;
+  setPreviewRootPath(rootPath);
   fileTree.innerHTML = "";
   await loadDirectory(workspaceRoot, fileTree);
   refreshStatus();
@@ -811,24 +823,14 @@ function switchToThread(thread: Thread, workspaceRoot: string) {
   activeThreadId = thread.id;
   // Load messages into AI panel
   const aiMessages = document.getElementById("ai-messages");
+  const aiPanel = document.getElementById("ai-panel");
+  if (aiPanel && thread.provider) {
+    (aiPanel as any)._setProvider?.(thread.provider);
+  }
   if (aiMessages) {
     aiMessages.innerHTML = "";
     for (const msg of thread.messages) {
-      const el = document.createElement("div");
-      el.className = `ai-msg ai-msg-${msg.role} fade-in`;
-      const header = document.createElement("div");
-      header.className = "ai-msg-header";
-      header.textContent = msg.role === "user" ? "You" : "Claude";
-      const body = document.createElement("div");
-      body.className = "ai-msg-content";
-      if (msg.role === "assistant") {
-        body.innerHTML = (window as any).__renderMarkdown?.(msg.content) || msg.content;
-      } else {
-        body.textContent = msg.content;
-      }
-      el.appendChild(header);
-      el.appendChild(body);
-      aiMessages.appendChild(el);
+      aiMessages.appendChild(createMessageEl(msg.role, msg.content));
     }
     // Scroll to bottom
     requestAnimationFrame(() => {
@@ -836,7 +838,6 @@ function switchToThread(thread: Thread, workspaceRoot: string) {
     });
   }
   // Restore token usage, model/permission, and placeholder for this thread
-  const aiPanel = document.getElementById("ai-panel");
   if (aiPanel) {
     (aiPanel as any)._restoreUsage?.(thread.id);
     (aiPanel as any)._updatePlaceholder?.(thread.messages.length > 0);
@@ -953,9 +954,15 @@ async function acceptEdit(filePath: string) {
 }
 
 /** Reject an AI edit — restore original */
-function rejectEdit(filePath: string) {
+async function rejectEdit(filePath: string) {
   const edit = pendingEdits.get(filePath);
   if (!edit) return;
+
+  try {
+    await invoke("write_file", { path: filePath, content: edit.originalContent });
+  } catch (err) {
+    console.error("Failed to restore file:", err);
+  }
 
   // Restore original content in editor
   const tab = tabs.get(filePath);
@@ -988,7 +995,7 @@ async function acceptAllEdits() {
 function rejectAllEdits() {
   const paths = Array.from(pendingEdits.keys());
   for (const path of paths) {
-    rejectEdit(path);
+    void rejectEdit(path);
   }
 }
 
@@ -1034,6 +1041,17 @@ initAIPanel(
   {
     getActiveThreadId: () => activeThreadId,
     getSessionId: () => activeThreadId ? getThreadSessionId(activeThreadId) : undefined,
+    ensureActiveThread: async () => {
+      if (activeThreadId) return activeThreadId;
+      if (!rootPath) return null;
+
+      const projectName = rootPath.split("/").pop() || rootPath;
+      const project = findProjectByRoot(rootPath) || await createProject(projectName, rootPath);
+      const thread = await createThread(project.id);
+      activeThreadId = thread.id;
+      renderProjects();
+      return thread.id;
+    },
     saveMessage: async (role: "user" | "assistant", content: string) => {
       if (activeThreadId) {
         await addMessageToThread(activeThreadId, role, content);
@@ -1140,6 +1158,7 @@ loadProjects().then(async () => {
   const session = getSession();
   if (session?.rootPath) {
     rootPath = session.rootPath;
+    setPreviewRootPath(rootPath);
     updateTitlebar();
     fileTree.innerHTML = "";
     await loadDirectory(session.rootPath, fileTree);
@@ -1215,17 +1234,17 @@ window.addEventListener("DOMContentLoaded", () => {
 
   // Register command palette commands
   registerCommands([
-    { id: "file.open", label: "Open Folder", shortcut: "Cmd+O", category: "File", action: openFolder },
-    { id: "file.save", label: "Save File", shortcut: "Cmd+S", category: "File", action: saveCurrentFile },
-    { id: "file.close", label: "Close Tab", shortcut: "Cmd+W", category: "File", action: () => { if (activeTabPath) closeTab(activeTabPath); } },
-    { id: "view.terminal", label: "Toggle Terminal", shortcut: "Cmd+`", category: "View", action: toggleTerminal },
-    { id: "view.ai", label: "Toggle AI Assistant", shortcut: "Cmd+L", category: "View", action: toggleAIPanel },
-    { id: "view.search", label: "Search in Files", shortcut: "Cmd+Shift+F", category: "View", action: toggleSearch },
-    { id: "view.settings", label: "Open Settings", shortcut: "Cmd+,", category: "View", action: showSettings },
+    { id: "file.open", label: "Open Folder", shortcut: formatShortcut("Cmd+O"), category: "File", action: openFolder },
+    { id: "file.save", label: "Save File", shortcut: formatShortcut("Cmd+S"), category: "File", action: saveCurrentFile },
+    { id: "file.close", label: "Close Tab", shortcut: formatShortcut("Cmd+W"), category: "File", action: () => { if (activeTabPath) closeTab(activeTabPath); } },
+    { id: "view.terminal", label: "Toggle Terminal", shortcut: formatShortcut("Cmd+`"), category: "View", action: toggleTerminal },
+    { id: "view.ai", label: "Toggle AI Assistant", shortcut: formatShortcut("Cmd+L"), category: "View", action: toggleAIPanel },
+    { id: "view.search", label: "Search in Files", shortcut: formatShortcut("Cmd+Shift+F"), category: "View", action: toggleSearch },
+    { id: "view.settings", label: "Open Settings", shortcut: formatShortcut("Cmd+,"), category: "View", action: showSettings },
     { id: "view.about", label: "About Zauri", category: "View", action: showAbout },
-    { id: "git.panel", label: "Git Actions", shortcut: "Cmd+Shift+G", category: "Git", action: toggleGitPanel },
+    { id: "git.panel", label: "Git Actions", shortcut: formatShortcut("Cmd+Shift+G"), category: "Git", action: toggleGitPanel },
     { id: "git.branch", label: "Switch Branch", category: "Git", action: () => showBranchSelector() },
-    { id: "editor.palette", label: "Command Palette", shortcut: "Cmd+Shift+P", category: "Editor", action: showCommandPalette },
+    { id: "editor.palette", label: "Command Palette", shortcut: formatShortcut("Cmd+Shift+P"), category: "Editor", action: showCommandPalette },
     { id: "view.preview", label: "Toggle Preview", category: "View", action: () => {
       if (isPreviewOpen()) { hidePreview(); }
       else if (activeTabPath && editorView) {
